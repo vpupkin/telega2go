@@ -13,12 +13,14 @@ const UserRegistration = () => {
     name: '',
     email: '',
     phone: '',
-    telegram_chat_id: ''
+    telegram_chat_id: '',
+    telegram_username: ''
   });
   const [otpCode, setOtpCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [useUsername, setUseUsername] = useState(true); // Default to username for simplicity
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -42,7 +44,11 @@ const UserRegistration = () => {
       setError('Phone number is required');
       return false;
     }
-    if (!formData.telegram_chat_id.trim()) {
+    if (useUsername && !formData.telegram_username.trim()) {
+      setError('Telegram Username is required');
+      return false;
+    }
+    if (!useUsername && !formData.telegram_chat_id.trim()) {
       setError('Telegram Chat ID is required');
       return false;
     }
@@ -63,7 +69,12 @@ const UserRegistration = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          // Only send the relevant field based on user choice
+          telegram_chat_id: useUsername ? null : formData.telegram_chat_id,
+          telegram_username: useUsername ? formData.telegram_username : null
+        }),
       });
 
       if (!response.ok) {
@@ -198,20 +209,59 @@ const UserRegistration = () => {
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="telegram_chat_id">Telegram Chat ID</Label>
-            <Input
-              id="telegram_chat_id"
-              name="telegram_chat_id"
-              type="text"
-              placeholder="Your Telegram Chat ID"
-              value={formData.telegram_chat_id}
-              onChange={handleInputChange}
-              required
-            />
-            <p className="text-xs text-gray-500">
-              Get your Chat ID from @userinfobot on Telegram
-            </p>
+          <div className="space-y-3">
+            <div className="flex items-center space-x-4">
+              <Button
+                type="button"
+                variant={useUsername ? "default" : "outline"}
+                size="sm"
+                onClick={() => setUseUsername(true)}
+              >
+                @username
+              </Button>
+              <Button
+                type="button"
+                variant={!useUsername ? "default" : "outline"}
+                size="sm"
+                onClick={() => setUseUsername(false)}
+              >
+                Chat ID
+              </Button>
+            </div>
+            
+            {useUsername ? (
+              <div className="space-y-2">
+                <Label htmlFor="telegram_username">Telegram Username</Label>
+                <Input
+                  id="telegram_username"
+                  name="telegram_username"
+                  type="text"
+                  placeholder="@yourusername"
+                  value={formData.telegram_username}
+                  onChange={handleInputChange}
+                  required
+                />
+                <p className="text-xs text-green-600">
+                  ✨ Super easy! Just enter your @username (e.g., @john_doe)
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="telegram_chat_id">Telegram Chat ID</Label>
+                <Input
+                  id="telegram_chat_id"
+                  name="telegram_chat_id"
+                  type="text"
+                  placeholder="Your Telegram Chat ID"
+                  value={formData.telegram_chat_id}
+                  onChange={handleInputChange}
+                  required
+                />
+                <p className="text-xs text-gray-500">
+                  Get your Chat ID from @userinfobot on Telegram
+                </p>
+              </div>
+            )}
           </div>
 
           {error && (
@@ -350,7 +400,7 @@ const UserRegistration = () => {
         <Button
           onClick={() => {
             setStep(1);
-            setFormData({ name: '', email: '', phone: '', telegram_chat_id: '' });
+            setFormData({ name: '', email: '', phone: '', telegram_chat_id: '', telegram_username: '' });
             setOtpCode('');
             setError('');
             setSuccess('');
