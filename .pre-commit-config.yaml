@@ -1,0 +1,18 @@
+repos:
+  - repo: local
+    hooks:
+      - id: test-registration-flow
+        name: Test Registration Flow
+        entry: python3 test_registration_flow.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]
+        
+      - id: docker-health-check
+        name: Docker Health Check
+        entry: bash -c 'docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "(telega2go|health)" || echo "No telega2go containers running"'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]
