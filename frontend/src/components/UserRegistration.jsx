@@ -70,10 +70,14 @@ const UserRegistration = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ...formData,
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
           // Only send the relevant field based on user choice
-          telegram_chat_id: useUsername ? null : formData.telegram_chat_id,
-          telegram_username: useUsername ? formData.telegram_username : null
+          ...(useUsername 
+            ? { telegram_username: formData.telegram_username }
+            : { telegram_chat_id: formData.telegram_chat_id }
+          )
         }),
       });
 
