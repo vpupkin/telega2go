@@ -184,7 +184,8 @@ async def send_otp(request: Request, otp_request: SendOTPRequest):
     success, response_data = await otp_service.send_otp(
         chat_id=otp_request.chat_id,
         otp=otp_request.otp,
-        expire_seconds=otp_request.expire_seconds or settings.default_expire_seconds
+        expire_seconds=otp_request.expire_seconds or settings.default_expire_seconds,
+        email=otp_request.email
     )
     
     if success:

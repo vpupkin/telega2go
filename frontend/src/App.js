@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import UserRegistration from "@/components/UserRegistration";
 import OTPDashboard from "@/components/OTPDashboard";
+import MagicLinkVerification from "@/components/MagicLinkVerification";
 
 function App() {
   return (
@@ -12,6 +13,7 @@ function App() {
         <Routes>
           <Route path="/" element={<UserRegistration />} />
           <Route path="/admin" element={<OTPDashboard />} />
+          <Route path="/verify" element={<MagicLinkVerification />} />
         </Routes>
       </BrowserRouter>
       <Toaster />
