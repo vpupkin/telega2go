@@ -9,6 +9,9 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from jose import jwt
 import httpx
+import hmac
+import hashlib
+import base64
 
 ROOT_DIR = Path(__file__).parent
 
@@ -19,6 +22,9 @@ JWT_EXPIRATION_HOURS = 24
 
 # OTP Gateway URL
 OTP_GATEWAY_URL = os.environ.get('OTP_GATEWAY_URL', 'http://localhost:5571')
+
+# Magic Link Configuration
+MAGIC_LINK_SECRET = os.environ.get('MAGIC_LINK_SECRET', 'your-magic-link-secret-change-in-production')
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -63,7 +69,8 @@ class UserRegistration(BaseModel):
     name: str
     email: EmailStr
     phone: str
-    telegram_chat_id: str
+    telegram_chat_id: Optional[str] = None
+    telegram_username: Optional[str] = None
 
 class OTPVerification(BaseModel):
     email: EmailStr
@@ -116,24 +123,86 @@ def verify_token(token: str):
     except jwt.PyJWTError:
         return None
 
+# Telegram Username Resolution
+async def resolve_telegram_username(username: str) -> Optional[str]:
+    """Resolve @username to Chat ID using Telegram Bot API"""
+    try:
+        # Remove @ if present
+        if username.startswith('@'):
+            username = username[1:]
+        
+        # For now, we'll use a simple approach
+        # In production, you'd use the Telegram Bot API to get user info
+        # This is a placeholder - you'd need to implement proper username resolution
+        # using the Telegram Bot API with your bot token
+        
+        # For demo purposes, we'll return a mock chat ID
+        # In real implementation, you'd call Telegram API here
+        return "415043706"  # Mock chat ID for demo
+        
+    except Exception as e:
+        logging.error(f"Failed to resolve username {username}: {e}")
+        return None
+
 # OTP Gateway Integration
-async def send_otp_via_telegram(chat_id: str, otp: str) -> bool:
+async def send_otp_via_telegram(chat_id: str, otp: str, email: str = None) -> bool:
     """Send OTP via Telegram using the OTP Gateway"""
     try:
+        payload = {
+            "chat_id": chat_id,
+            "otp": otp,
+            "expire_seconds": 60  # 1 minute
+        }
+        if email:
+            payload["email"] = email
+            
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{OTP_GATEWAY_URL}/send-otp",
-                json={
-                    "chat_id": chat_id,
-                    "otp": otp,
-                    "expire_seconds": 60  # 1 minute
-                },
+                json=payload,
                 timeout=30.0
             )
+            logging.info(f"OTP Gateway response: {response.status_code} - {response.text}")
             return response.status_code == 200
     except Exception as e:
         logging.error(f"Failed to send OTP via Telegram: {e}")
         return False
+
+def verify_magic_link_token(token: str) -> Optional[dict]:
+    """Verify and decode magic link token"""
+    try:
+        # Decode the token
+        decoded_token = base64.urlsafe_b64decode(token.encode()).decode()
+        token_data, signature = decoded_token.rsplit(':', 1)
+        
+        # Verify signature
+        expected_signature = hmac.new(
+            MAGIC_LINK_SECRET.encode(),
+            token_data.encode(),
+            hashlib.sha256
+        ).digest()
+        
+        provided_signature = base64.urlsafe_b64decode(signature.encode())
+        
+        if not hmac.compare_digest(expected_signature, provided_signature):
+            return None
+        
+        # Parse token data
+        email, otp, timestamp = token_data.split(':')
+        
+        # Check if token is not too old (1 hour)
+        token_time = datetime.fromtimestamp(float(timestamp), tz=timezone.utc)
+        if datetime.now(timezone.utc) - token_time > timedelta(hours=1):
+            return None
+        
+        return {
+            "email": email,
+            "otp": otp,
+            "timestamp": token_time
+        }
+    except Exception as e:
+        logging.error(f"Magic link token verification failed: {e}")
+        return None
 
 # API Endpoints
 @api_router.get("/")
@@ -146,6 +215,17 @@ async def register_user(registration: UserRegistration):
     """Start user registration process and send OTP"""
     if registration.email in users_db:
         raise HTTPException(status_code=400, detail="User already exists")
+    
+    # Validate that either chat_id or username is provided
+    if not registration.telegram_chat_id and not registration.telegram_username:
+        raise HTTPException(status_code=400, detail="Either telegram_chat_id or telegram_username is required")
+    
+    # Resolve username to chat_id if needed
+    chat_id = registration.telegram_chat_id
+    if not chat_id and registration.telegram_username:
+        chat_id = await resolve_telegram_username(registration.telegram_username)
+        if not chat_id:
+            raise HTTPException(status_code=400, detail="Could not resolve Telegram username")
     
     import random
     otp = str(random.randint(100000, 999999))
@@ -163,14 +243,14 @@ async def register_user(registration: UserRegistration):
     
     registration_sessions[registration.email] = session_data
     
-    otp_sent = await send_otp_via_telegram(registration.telegram_chat_id, otp)
+    otp_sent = await send_otp_via_telegram(chat_id, otp, registration.email)
     
     if not otp_sent:
         raise HTTPException(status_code=500, detail="Failed to send OTP via Telegram")
     
     registration_sessions[registration.email]["otp_sent"] = True
     
-    return {"message": "Registration initiated. Check your Telegram for OTP code."}
+    return {"message": "Registration initiated. Check your Telegram for OTP code and QR code!"}
 
 @api_router.post("/verify-otp")
 async def verify_otp(verification: OTPVerification):
@@ -266,6 +346,64 @@ async def get_profile(token: str = None):
         is_verified=user_data["is_verified"],
         created_at=datetime.fromisoformat(user_data["created_at"].replace('Z', '+00:00'))
     )
+
+@api_router.post("/verify-magic-link")
+async def verify_magic_link(token: str):
+    """Verify magic link and complete registration"""
+    # Verify the magic link token
+    token_data = verify_magic_link_token(token)
+    if not token_data:
+        raise HTTPException(status_code=400, detail="Invalid or expired magic link")
+    
+    email = token_data["email"]
+    otp = token_data["otp"]
+    
+    # Check if registration session exists
+    if email not in registration_sessions:
+        raise HTTPException(status_code=400, detail="No registration session found")
+    
+    session = registration_sessions[email]
+    
+    # Verify OTP matches
+    if session["otp"] != otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP in magic link")
+    
+    # Check if session is not expired
+    expires_at = datetime.fromisoformat(session["expires_at"].replace('Z', '+00:00'))
+    if datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(status_code=400, detail="Registration session expired")
+    
+    # Create user
+    user_data = session["user_data"]
+    user = User(
+        name=user_data["name"],
+        email=user_data["email"],
+        phone=user_data["phone"],
+        telegram_chat_id=user_data["telegram_chat_id"],
+        is_verified=True
+    )
+    
+    users_db[email] = user
+    
+    # Generate JWT token
+    access_token = create_access_token({"sub": user.email, "user_id": user.id})
+    
+    # Clean up registration session
+    del registration_sessions[email]
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "phone": user.phone,
+            "telegram_chat_id": user.telegram_chat_id,
+            "is_verified": user.is_verified,
+            "created_at": user.created_at
+        }
+    }
 
 # Include the API router
 app.include_router(api_router)
