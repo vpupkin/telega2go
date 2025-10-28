@@ -4,6 +4,8 @@ import logging
 import hmac
 import hashlib
 import base64
+import qrcode
+import io
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Tuple
 from telegram import Bot
@@ -45,6 +47,26 @@ class OTPService:
         # Return the magic link
         return f"{settings.magic_link_base_url}/verify?token={token}"
     
+    def _generate_qr_code(self, magic_link: str) -> bytes:
+        """Generate QR code for magic link"""
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(magic_link)
+        qr.make(fit=True)
+        
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        # Convert to bytes
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_bytes.seek(0)
+        
+        return img_bytes.getvalue()
+    
     async def send_otp(
         self, 
         chat_id: str, 
@@ -69,25 +91,38 @@ class OTPService:
             if email:
                 magic_link = self._generate_magic_link(email, otp)
             
-            # Format message using template
+            # Send QR code with OTP info if magic link is available
             if magic_link:
-                message_text = f"🔐 Your OTP is: {otp}\n\n⏱ Expires in {expire_seconds} seconds.\n\n🚀 Or click this link to verify instantly:\n{magic_link}\n\n⚠️ This message will self-destruct."
+                try:
+                    qr_code_bytes = self._generate_qr_code(magic_link)
+                    combined_message = f"🔐 Your OTP is: {otp}\n\n⏱ Expires in {expire_seconds} seconds.\n\n📱 Scan this QR code with your phone camera for instant verification!\n\n🔗 Or copy this link to your browser:\n{magic_link}\n\n💡 Tip: On mobile, you can tap and hold the link above to open it!\n\n⚠️ This message will self-destruct."
+                    
+                    message = await self.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=qr_code_bytes,
+                        caption=combined_message
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to send QR code: {e}")
+                    # Fallback: send the magic link as text
+                    message_text = f"🔐 Your OTP is: {otp}\n\n⏱ Expires in {expire_seconds} seconds.\n\n🔗 Click this link to verify instantly:\n{magic_link}\n\n💡 Tip: On mobile, you can tap and hold the link above to open it!\n\n⚠️ This message will self-destruct."
+                    message = await self._send_with_retry(chat_id, message_text)
             else:
+                # No magic link, send regular OTP message
                 message_text = settings.message_template.format(
                     otp=otp,
                     sec=expire_seconds
                 )
-            
-            # Send message with retry logic
-            message = await self._send_with_retry(chat_id, message_text)
+                message = await self._send_with_retry(chat_id, message_text)
             
             sent_at = datetime.now(timezone.utc)
             delete_at = sent_at + timedelta(seconds=expire_seconds)
             
-            # Schedule auto-delete as background task
-            asyncio.create_task(
-                self._auto_delete_message(chat_id, message.message_id, expire_seconds)
-            )
+            # Schedule auto-delete as background task (only if we have a message)
+            if message:
+                asyncio.create_task(
+                    self._auto_delete_message(chat_id, message.message_id, expire_seconds)
+                )
             
             self._delivery_stats["total_sent"] += 1
             
