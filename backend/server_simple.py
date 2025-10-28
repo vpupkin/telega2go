@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, Query
 from starlette.middleware.cors import CORSMiddleware
 import os
 import logging
@@ -365,7 +365,7 @@ async def get_profile(token: str = None):
     )
 
 @api_router.post("/verify-magic-link")
-async def verify_magic_link(token: str):
+async def verify_magic_link(token: str = Query(...)):
     """Verify magic link and complete registration"""
     # Verify the magic link token
     token_data = verify_magic_link_token(token)
