@@ -33,7 +33,7 @@ services:
     ports:
       - "5571:55155"
     environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-your_bot_token_here}
+      - TELEGRAM_BOT_TOKEN=8021082793:AAE56NV3KZ76qkRGrGv9kKk3Wq17n_exvzQ
       - DEFAULT_EXPIRE_SECONDS=${DEFAULT_EXPIRE_SECONDS:-30}
       - RATE_LIMIT_PER_USER=${RATE_LIMIT_PER_USER:-5}
       - PORT=55155
@@ -84,6 +84,9 @@ services:
     restart: unless-stopped
     ports:
       - "5573:80"
+    environment:
+      - REACT_APP_BACKEND_URL=http://localhost:5572
+      - REACT_APP_OTP_GATEWAY_URL=http://localhost:5571
     networks:
       - telega2go-network
     healthcheck:

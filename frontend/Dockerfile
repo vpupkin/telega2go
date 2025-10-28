@@ -13,6 +13,10 @@ RUN npm install --legacy-peer-deps
 # Copy source code
 COPY . .
 
+# Set environment variables
+ENV REACT_APP_BACKEND_URL=http://localhost:5572
+ENV REACT_APP_OTP_GATEWAY_URL=http://localhost:5571
+
 # Fix dependency issues and build the application
 RUN npm install ajv@^8.0.0 --save-dev --legacy-peer-deps
 RUN npm install date-fns@^3.6.0 --save --legacy-peer-deps

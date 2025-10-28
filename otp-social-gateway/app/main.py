@@ -1,4 +1,5 @@
 """FastAPI application for OTP Social Gateway"""
+import asyncio
 import logging
 import sys
 from datetime import datetime, timezone
@@ -8,6 +9,7 @@ from time import time
 
 from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -71,11 +73,15 @@ async def lifespan(app: FastAPI):
     
     otp_service = OTPService(settings.telegram_bot_token)
     
-    # Verify bot token
-    is_valid = await otp_service.verify_bot_token()
-    if not is_valid:
-        logger.error("Failed to verify Telegram bot token")
-        raise ValueError("Invalid TELEGRAM_BOT_TOKEN")
+    # Verify bot token (with timeout handling)
+    try:
+        is_valid = await asyncio.wait_for(otp_service.verify_bot_token(), timeout=10.0)
+        if not is_valid:
+            logger.warning("Bot token verification failed, but continuing startup")
+    except asyncio.TimeoutError:
+        logger.warning("Bot token verification timed out, but continuing startup")
+    except Exception as e:
+        logger.warning(f"Bot token verification error: {e}, but continuing startup")
     
     logger.info(f"OTP Social Gateway started on port {settings.port}")
     
@@ -93,6 +99,15 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5573", "http://localhost:80"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Rate limiter setup

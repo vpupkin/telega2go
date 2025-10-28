@@ -170,9 +170,12 @@ class OTPService:
     async def verify_bot_token(self) -> bool:
         """Verify that the bot token is valid"""
         try:
-            bot_info = await self.bot.get_me()
+            bot_info = await asyncio.wait_for(self.bot.get_me(), timeout=30.0)
             logger.info(f"Bot verified: @{bot_info.username} ({bot_info.first_name})")
             return True
+        except asyncio.TimeoutError:
+            logger.error("Bot token verification timed out")
+            return False
         except TelegramError as e:
             logger.error(f"Invalid bot token: {str(e)}")
             return False
