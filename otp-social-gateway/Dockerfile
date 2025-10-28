@@ -27,12 +27,16 @@ COPY --from=builder /root/.local /root/.local
 # Copy application code
 COPY app/ ./app/
 
-# Make sure scripts in .local are usable
-ENV PATH=/root/.local/bin:$PATH
+# Create non-root user first
+RUN useradd -m -u 1000 otpuser
 
-# Create non-root user
-RUN useradd -m -u 1000 otpuser && \
+# Copy .local to user's home directory
+RUN cp -r /root/.local /home/otpuser/ && \
+    chown -R otpuser:otpuser /home/otpuser/.local && \
     chown -R otpuser:otpuser /app
+
+# Make sure scripts in .local are usable
+ENV PATH=/home/otpuser/.local/bin:$PATH
 
 # Switch to non-root user
 USER otpuser
