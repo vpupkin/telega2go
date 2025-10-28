@@ -239,7 +239,7 @@ async def register_user(registration: UserRegistration):
         "otp_sent": False,
         "resolved_chat_id": chat_id,  # Store the resolved chat_id
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "expires_at": datetime.now(timezone.utc).replace(hour=datetime.now(timezone.utc).hour + 1).isoformat()
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     }
     
     registration_sessions[registration.email] = session_data

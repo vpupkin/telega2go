@@ -1,9 +1,52 @@
 #!/bin/bash
 
 # Telega2Go Startup Script
-# This script starts all components of the Telega2Go project
+# SINGLE ENTRY POINT for ALL Docker operations
+# This script handles starting, rebuilding, and managing all components
 
 set -e
+
+# Parse command line arguments
+FORCE_REBUILD=false
+CLEAN_BUILD=false
+SERVICE=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --force-rebuild|-f)
+            FORCE_REBUILD=true
+            shift
+            ;;
+        --clean|-c)
+            CLEAN_BUILD=true
+            shift
+            ;;
+        --service|-s)
+            SERVICE="$2"
+            shift 2
+            ;;
+        --help|-h)
+            echo "Usage: $0 [OPTIONS]"
+            echo "Options:"
+            echo "  --force-rebuild, -f    Force rebuild without cache"
+            echo "  --clean, -c           Clean build (remove images first)"
+            echo "  --service, -s SERVICE Rebuild specific service only"
+            echo "  --help, -h            Show this help"
+            echo ""
+            echo "Examples:"
+            echo "  $0                    # Normal start"
+            echo "  $0 --force-rebuild    # Force rebuild all services"
+            echo "  $0 --clean            # Clean build (remove images first)"
+            echo "  $0 --service frontend # Rebuild only frontend"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
 
 echo "🚀 Starting Telega2Go Project..."
 
@@ -70,10 +113,30 @@ if grep -q "your_bot_token_here" .env; then
     print_warning "Continuing with dummy token for now..."
 fi
 
-print_status "Building and starting all services..."
+# Handle different build scenarios
+if [ "$CLEAN_BUILD" = true ]; then
+    print_status "Cleaning build (removing images first)..."
+    $DOCKER_COMPOSE_CMD down --rmi all 2>/dev/null || true
+    docker system prune -f
+fi
 
-# Build and start all services
-$DOCKER_COMPOSE_CMD up --build -d
+if [ "$FORCE_REBUILD" = true ]; then
+    print_status "Force rebuilding all services (no cache)..."
+    if [ -n "$SERVICE" ]; then
+        print_status "Rebuilding service: $SERVICE"
+        $DOCKER_COMPOSE_CMD build --no-cache $SERVICE
+        $DOCKER_COMPOSE_CMD up -d $SERVICE
+    else
+        $DOCKER_COMPOSE_CMD build --no-cache
+        $DOCKER_COMPOSE_CMD up -d
+    fi
+elif [ -n "$SERVICE" ]; then
+    print_status "Rebuilding service: $SERVICE"
+    $DOCKER_COMPOSE_CMD up --build -d $SERVICE
+else
+    print_status "Building and starting all services..."
+    $DOCKER_COMPOSE_CMD up --build -d
+fi
 
 print_status "Waiting for services to be ready..."
 
@@ -129,4 +192,12 @@ echo "  View logs:    $DOCKER_COMPOSE_CMD logs -f"
 echo "  Stop all:     $DOCKER_COMPOSE_CMD down"
 echo "  Restart:      $DOCKER_COMPOSE_CMD restart"
 echo ""
+echo "🚀 Enhanced Start Commands:"
+echo "  ./start.sh                    # Normal start"
+echo "  ./start.sh --force-rebuild    # Force rebuild (fixes cache issues)"
+echo "  ./start.sh --clean            # Clean build (removes all images)"
+echo "  ./start.sh --service frontend # Rebuild only frontend"
+echo "  ./start.sh --help             # Show all options"
+echo ""
 print_warning "Note: If OTP Gateway is not working, check your TELEGRAM_BOT_TOKEN in .env file"
+print_warning "Note: Use --force-rebuild if you're having cache issues with frontend updates"
