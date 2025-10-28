@@ -9,6 +9,8 @@ import { CheckCircle, User, Mail, Phone, Shield, ArrowRight, ArrowLeft } from 'l
 
 const UserRegistration = () => {
   const [step, setStep] = useState(1); // 1: Registration Form, 2: OTP Verification, 3: Success
+  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5572';
+  
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -64,7 +66,7 @@ const UserRegistration = () => {
 
     try {
       // Step 1: Register user and send OTP
-      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/register`, {
+      const response = await fetch(`${BACKEND_URL}/api/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -107,7 +109,7 @@ const UserRegistration = () => {
     setError('');
 
     try {
-      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/verify-otp`, {
+      const response = await fetch(`${BACKEND_URL}/api/verify-otp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -138,7 +140,7 @@ const UserRegistration = () => {
     setError('');
 
     try {
-      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/resend-otp`, {
+      const response = await fetch(`${BACKEND_URL}/api/resend-otp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
