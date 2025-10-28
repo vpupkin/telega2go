@@ -13,7 +13,7 @@ const UserRegistration = () => {
     name: '',
     email: '',
     phone: '',
-    telegramChatId: ''
+    telegram_chat_id: ''
   });
   const [otpCode, setOtpCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -42,7 +42,7 @@ const UserRegistration = () => {
       setError('Phone number is required');
       return false;
     }
-    if (!formData.telegramChatId.trim()) {
+    if (!formData.telegram_chat_id.trim()) {
       setError('Telegram Chat ID is required');
       return false;
     }
@@ -199,13 +199,13 @@ const UserRegistration = () => {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="telegramChatId">Telegram Chat ID</Label>
+            <Label htmlFor="telegram_chat_id">Telegram Chat ID</Label>
             <Input
-              id="telegramChatId"
-              name="telegramChatId"
+              id="telegram_chat_id"
+              name="telegram_chat_id"
               type="text"
               placeholder="Your Telegram Chat ID"
-              value={formData.telegramChatId}
+              value={formData.telegram_chat_id}
               onChange={handleInputChange}
               required
             />
@@ -350,7 +350,7 @@ const UserRegistration = () => {
         <Button
           onClick={() => {
             setStep(1);
-            setFormData({ name: '', email: '', phone: '', telegramChatId: '' });
+            setFormData({ name: '', email: '', phone: '', telegram_chat_id: '' });
             setOtpCode('');
             setError('');
             setSuccess('');
