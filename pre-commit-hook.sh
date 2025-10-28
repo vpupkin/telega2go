@@ -1,7 +1,7 @@
 #!/bin/bash
-# Pre-commit hook to ensure basic functionality works before committing
+# Pre-commit hook to ensure basic and advanced functionality works before committing
 
-echo "🔍 Running basic pre-commit checks..."
+echo "🔍 Running comprehensive pre-commit checks..."
 
 # Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
@@ -21,5 +21,14 @@ if ! python3 test_basic_functionality.py; then
     exit 1
 fi
 
-echo "✅ All basic tests passed! Proceeding with commit."
+# Run advanced features test
+echo "🚀 Running advanced features test..."
+if ! python3 test_advanced_features.py; then
+    echo "❌ Advanced features test failed! Please fix the issues before committing."
+    echo "💡 Run 'python3 test_advanced_features.py' to see detailed error messages."
+    exit 1
+fi
+
+echo "✅ All tests passed! Proceeding with commit."
+echo "🎉 Basic functionality: ✅ | Advanced features: ✅"
 exit 0
