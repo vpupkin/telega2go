@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Custom message template
     message_template: str = "🔐 Your OTP is: {otp}\n\n⏱ Expires in {sec} seconds.\n\n⚠️ This message will self-destruct."
     
+    # Magic Link Configuration
+    magic_link_base_url: str = "http://localhost:5573"
+    magic_link_secret: str = "your-magic-link-secret-change-in-production"
+    
     class Config:
         env_file = ".env"
         case_sensitive = False

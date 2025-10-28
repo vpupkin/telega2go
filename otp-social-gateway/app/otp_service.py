@@ -1,6 +1,9 @@
 """OTP delivery service using Telegram Bot API with auto-delete"""
 import asyncio
 import logging
+import hmac
+import hashlib
+import base64
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Tuple
 from telegram import Bot
@@ -22,11 +25,32 @@ class OTPService:
             "total_deleted": 0
         }
     
+    def _generate_magic_link(self, email: str, otp: str) -> str:
+        """Generate a secure magic link for OTP verification"""
+        # Create a token with email and OTP
+        token_data = f"{email}:{otp}:{datetime.now(timezone.utc).timestamp()}"
+        
+        # Create HMAC signature
+        signature = hmac.new(
+            settings.magic_link_secret.encode(),
+            token_data.encode(),
+            hashlib.sha256
+        ).digest()
+        
+        # Encode the token
+        token = base64.urlsafe_b64encode(
+            f"{token_data}:{base64.urlsafe_b64encode(signature).decode()}".encode()
+        ).decode()
+        
+        # Return the magic link
+        return f"{settings.magic_link_base_url}/verify?token={token}"
+    
     async def send_otp(
         self, 
         chat_id: str, 
         otp: str, 
-        expire_seconds: int = 30
+        expire_seconds: int = 30,
+        email: str = None
     ) -> Tuple[bool, Dict]:
         """
         Send OTP to Telegram user and schedule auto-delete
@@ -40,11 +64,19 @@ class OTPService:
             Tuple of (success: bool, response_data: dict)
         """
         try:
+            # Generate magic link if email is provided
+            magic_link = ""
+            if email:
+                magic_link = self._generate_magic_link(email, otp)
+            
             # Format message using template
-            message_text = settings.message_template.format(
-                otp=otp,
-                sec=expire_seconds
-            )
+            if magic_link:
+                message_text = f"🔐 Your OTP is: {otp}\n\n⏱ Expires in {expire_seconds} seconds.\n\n🚀 Or click this link to verify instantly:\n{magic_link}\n\n⚠️ This message will self-destruct."
+            else:
+                message_text = settings.message_template.format(
+                    otp=otp,
+                    sec=expire_seconds
+                )
             
             # Send message with retry logic
             message = await self._send_with_retry(chat_id, message_text)
