@@ -174,6 +174,15 @@ else
     print_warning "Frontend is not responding"
 fi
 
+# Run comprehensive automated tests
+echo ""
+print_status "Running comprehensive automated tests..."
+if python3 test_all.py > /dev/null 2>&1; then
+    print_success "✅ All automated tests passed - system is fully functional!"
+else
+    print_warning "⚠️  Some automated tests failed - check test reports"
+fi
+
 echo ""
 print_success "🎉 Telega2Go is starting up!"
 echo ""
