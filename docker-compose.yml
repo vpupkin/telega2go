@@ -63,6 +63,8 @@ services:
       - MONGO_URL=mongodb://admin:password123@mongodb:27017/telega2go?authSource=admin
       - DB_NAME=telega2go
       - CORS_ORIGINS=http://localhost:5573,http://localhost:80
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      - OTP_GATEWAY_URL=http://otp-gateway:55155
     networks:
       - telega2go-network
     healthcheck:

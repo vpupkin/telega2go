@@ -1,14 +1,16 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, Depends
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
+import jwt
+import httpx
 
 
 ROOT_DIR = Path(__file__).parent
@@ -18,6 +20,14 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# JWT Configuration
+JWT_SECRET = os.environ.get('JWT_SECRET', 'your-secret-key-change-in-production')
+JWT_ALGORITHM = 'HS256'
+JWT_EXPIRATION_HOURS = 24
+
+# OTP Gateway URL
+OTP_GATEWAY_URL = os.environ.get('OTP_GATEWAY_URL', 'http://localhost:5571')
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -36,6 +46,94 @@ class StatusCheck(BaseModel):
 
 class StatusCheckCreate(BaseModel):
     client_name: str
+
+# User Models
+class User(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    email: EmailStr
+    phone: str
+    telegram_chat_id: str
+    is_verified: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class UserRegistration(BaseModel):
+    name: str
+    email: EmailStr
+    phone: str
+    telegram_chat_id: str
+
+class OTPVerification(BaseModel):
+    email: EmailStr
+    otp: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: Optional[str] = None
+
+class UserResponse(BaseModel):
+    id: str
+    name: str
+    email: str
+    phone: str
+    telegram_chat_id: str
+    is_verified: bool
+    created_at: datetime
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: UserResponse
+
+# Registration Session Model
+class RegistrationSession(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    email: EmailStr
+    user_data: dict
+    otp_sent: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(hour=datetime.now(timezone.utc).hour + 1))
+
+# JWT Utility Functions
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc).replace(hour=datetime.now(timezone.utc).hour + JWT_EXPIRATION_HOURS)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return encoded_jwt
+
+def verify_token(token: str):
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+# OTP Gateway Integration
+async def send_otp_via_telegram(chat_id: str, otp: str):
+    """Send OTP via Telegram using the OTP Gateway"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{OTP_GATEWAY_URL}/send-otp",
+                json={
+                    "chat_id": chat_id,
+                    "otp": otp,
+                    "expire_seconds": 300  # 5 minutes
+                },
+                timeout=30.0
+            )
+            return response.status_code == 200
+    except Exception as e:
+        logger.error(f"Failed to send OTP via Telegram: {e}")
+        return False
 
 # Add your routes to the router instead of directly to app
 @api_router.get("/")
@@ -65,6 +163,161 @@ async def get_status_checks():
             check['timestamp'] = datetime.fromisoformat(check['timestamp'])
     
     return status_checks
+
+# User Registration Endpoints
+@api_router.post("/register")
+async def register_user(registration: UserRegistration):
+    """Start user registration process and send OTP"""
+    # Check if user already exists
+    existing_user = await db.users.find_one({"email": registration.email})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="User already exists")
+    
+    # Generate OTP
+    import random
+    otp = str(random.randint(100000, 999999))
+    
+    # Create registration session
+    session_data = {
+        "id": str(uuid.uuid4()),
+        "email": registration.email,
+        "user_data": registration.model_dump(),
+        "otp": otp,
+        "otp_sent": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": datetime.now(timezone.utc).replace(hour=datetime.now(timezone.utc).hour + 1).isoformat()
+    }
+    
+    # Store session
+    await db.registration_sessions.insert_one(session_data)
+    
+    # Send OTP via Telegram
+    otp_sent = await send_otp_via_telegram(registration.telegram_chat_id, otp)
+    
+    if not otp_sent:
+        raise HTTPException(status_code=500, detail="Failed to send OTP via Telegram")
+    
+    # Update session with OTP sent status
+    await db.registration_sessions.update_one(
+        {"email": registration.email},
+        {"$set": {"otp_sent": True}}
+    )
+    
+    return {"message": "Registration initiated. Check your Telegram for OTP code."}
+
+@api_router.post("/verify-otp", response_model=TokenResponse)
+async def verify_otp(verification: OTPVerification):
+    """Verify OTP and complete user registration"""
+    # Find registration session
+    session = await db.registration_sessions.find_one({"email": verification.email})
+    if not session:
+        raise HTTPException(status_code=404, detail="Registration session not found")
+    
+    # Check if session is expired
+    if datetime.now(timezone.utc) > datetime.fromisoformat(session['expires_at']):
+        raise HTTPException(status_code=400, detail="Registration session expired")
+    
+    # Verify OTP
+    if session.get('otp') != verification.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+    
+    # Create user
+    user_data = session['user_data']
+    user = User(
+        name=user_data['name'],
+        email=user_data['email'],
+        phone=user_data['phone'],
+        telegram_chat_id=user_data['telegram_chat_id'],
+        is_verified=True
+    )
+    
+    # Save user to database
+    user_doc = user.model_dump()
+    user_doc['created_at'] = user_doc['created_at'].isoformat()
+    user_doc['updated_at'] = user_doc['updated_at'].isoformat()
+    
+    await db.users.insert_one(user_doc)
+    
+    # Clean up registration session
+    await db.registration_sessions.delete_one({"email": verification.email})
+    
+    # Create JWT token
+    token_data = {"sub": user.id, "email": user.email}
+    access_token = create_access_token(token_data)
+    
+    # Return user data and token
+    user_response = UserResponse(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        phone=user.phone,
+        telegram_chat_id=user.telegram_chat_id,
+        is_verified=user.is_verified,
+        created_at=user.created_at
+    )
+    
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        user=user_response
+    )
+
+@api_router.post("/resend-otp")
+async def resend_otp(email: str):
+    """Resend OTP for registration"""
+    # Find registration session
+    session = await db.registration_sessions.find_one({"email": email})
+    if not session:
+        raise HTTPException(status_code=404, detail="Registration session not found")
+    
+    # Check if session is expired
+    if datetime.now(timezone.utc) > datetime.fromisoformat(session['expires_at']):
+        raise HTTPException(status_code=400, detail="Registration session expired")
+    
+    # Generate new OTP
+    import random
+    otp = str(random.randint(100000, 999999))
+    
+    # Update session with new OTP
+    await db.registration_sessions.update_one(
+        {"email": email},
+        {"$set": {"otp": otp}}
+    )
+    
+    # Send OTP via Telegram
+    otp_sent = await send_otp_via_telegram(session['user_data']['telegram_chat_id'], otp)
+    
+    if not otp_sent:
+        raise HTTPException(status_code=500, detail="Failed to resend OTP via Telegram")
+    
+    return {"message": "OTP resent successfully"}
+
+@api_router.get("/profile", response_model=UserResponse)
+async def get_user_profile(token: str = Depends(lambda: None)):
+    """Get user profile (requires authentication)"""
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    try:
+        payload = verify_token(token)
+        user_id = payload.get("sub")
+        
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        user = await db.users.find_one({"id": user_id}, {"_id": 0})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Convert ISO string timestamps back to datetime objects
+        if isinstance(user['created_at'], str):
+            user['created_at'] = datetime.fromisoformat(user['created_at'])
+        
+        return UserResponse(**user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 # Include the router in the main app
 app.include_router(api_router)
