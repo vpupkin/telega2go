@@ -2,11 +2,15 @@
 
 ## ⚠️ **CRITICAL RULES - NO EXCEPTIONS**
 
-### 1. **KISS PRINCIPLE** 
-- Keep It Simple, Stupid
-- One change at a time
-- Minimal, focused modifications
-- No over-engineering
+### 1. **KISS PRINCIPLE - MANDATORY**
+- ✅ **ALWAYS** Keep It Simple, Stupid
+- ✅ **ALWAYS** use the simplest solution possible
+- ✅ **ALWAYS** one change at a time
+- ✅ **ALWAYS** minimal, focused modifications
+- ❌ **NEVER** over-engineer solutions
+- ❌ **NEVER** use complex methods when simple ones work
+- ❌ **NEVER** add unnecessary complexity
+- 🚨 **VIOLATION**: Ignoring KISS principle is a CRITICAL RULE VIOLATION
 
 ### 2. **NO COMMITS WITHOUT AGREEMENT**
 - ❌ **NEVER** commit without explicit user approval
@@ -19,6 +23,9 @@
 - ❌ **NEVER** commit untested code
 - ✅ **ALWAYS** implement complete features
 - ✅ **ALWAYS** test thoroughly before commit
+- ✅ **ALWAYS** test all previous tests + new feature tests
+- ✅ **ALWAYS** test with running containers (Docker-based app requirement)
+- ❌ **NEVER** commit without successful test results
 
 ### 4. **PRE-COMMIT RULES ENFORCEMENT**
 - ✅ **ALWAYS** run pre-commit hooks before any commit
@@ -84,7 +91,7 @@
 ## 📋 **ACKNOWLEDGMENT**
 
 I understand and will follow these rules:
-- ✅ KISS principle
+- ✅ **ALWAYS use KISS principle - MANDATORY**
 - ✅ No commits without agreement
 - ✅ No commits without full testing
 - ✅ Always run pre-commit checks
@@ -93,5 +100,8 @@ I understand and will follow these rules:
 - ❌ **NEVER use any other Docker method**
 - ✅ **ALWAYS create tags when requested with sequential numbering + keywords**
 - ❌ **NEVER skip tagging or use lower numbers than previous tags**
+- ✅ **ALWAYS test all previous tests + new feature tests**
+- ✅ **ALWAYS test with running containers (Docker-based app requirement)**
+- ❌ **NEVER commit without successful test results**
 
 **These rules are now MANDATORY for all future development.**

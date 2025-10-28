@@ -37,10 +37,17 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
-# Check if Docker Compose is available
-if ! command -v docker-compose > /dev/null 2>&1; then
-    print_error "Docker Compose is not installed. Please install Docker Compose and try again."
+# Check if Docker Compose is available (prefer newer docker compose)
+if ! command -v docker > /dev/null 2>&1; then
+    print_error "Docker is not installed. Please install Docker and try again."
     exit 1
+fi
+
+# Use newer docker compose if available, fallback to docker-compose
+if docker compose version > /dev/null 2>&1; then
+    DOCKER_COMPOSE_CMD="docker compose"
+else
+    DOCKER_COMPOSE_CMD="docker-compose"
 fi
 
 # Check for .env file
@@ -66,7 +73,7 @@ fi
 print_status "Building and starting all services..."
 
 # Build and start all services
-docker-compose up --build -d
+$DOCKER_COMPOSE_CMD up --build -d
 
 print_status "Waiting for services to be ready..."
 
@@ -77,7 +84,7 @@ sleep 10
 print_status "Checking service health..."
 
 # Check MongoDB
-if docker-compose exec -T mongodb mongosh --eval "db.adminCommand('ping')" > /dev/null 2>&1; then
+if $DOCKER_COMPOSE_CMD exec -T mongodb mongosh --eval "db.adminCommand('ping')" > /dev/null 2>&1; then
     print_success "MongoDB is running"
 else
     print_warning "MongoDB is not responding"
@@ -118,8 +125,8 @@ echo "  Backend:      http://localhost:5572/docs"
 echo "  OTP Gateway:  http://localhost:5571/docs"
 echo ""
 echo "🔧 Management Commands:"
-echo "  View logs:    docker-compose logs -f"
-echo "  Stop all:     docker-compose down"
-echo "  Restart:      docker-compose restart"
+echo "  View logs:    $DOCKER_COMPOSE_CMD logs -f"
+echo "  Stop all:     $DOCKER_COMPOSE_CMD down"
+echo "  Restart:      $DOCKER_COMPOSE_CMD restart"
 echo ""
 print_warning "Note: If OTP Gateway is not working, check your TELEGRAM_BOT_TOKEN in .env file"
