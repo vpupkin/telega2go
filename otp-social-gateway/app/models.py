@@ -9,6 +9,7 @@ class SendOTPRequest(BaseModel):
     chat_id: str = Field(..., description="Telegram user chat ID (numeric string)")
     otp: str = Field(..., description="One-Time Password (4-8 digits)")
     expire_seconds: Optional[int] = Field(30, description="Auto-delete after seconds (5-60)")
+    email: Optional[str] = Field(None, description="User email for magic link generation")
     
     @validator('chat_id')
     def validate_chat_id(cls, v):
