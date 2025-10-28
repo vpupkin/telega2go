@@ -314,8 +314,12 @@ async def verify_otp(verification: OTPVerification):
     )
 
 @api_router.post("/resend-otp")
-async def resend_otp(email: str):
+async def resend_otp(request: dict):
     """Resend OTP for existing registration session"""
+    email = request.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    
     if email not in registration_sessions:
         raise HTTPException(status_code=400, detail="No registration session found")
     
