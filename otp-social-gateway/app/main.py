@@ -18,6 +18,7 @@ from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
 from app.config import settings
 from app.models import SendOTPRequest, SendOTPResponse, ErrorResponse, HealthResponse
 from app.simple_otp_service import SimpleOTPService
+from app.bot_commands import FunnyBotCommands
 from app import __version__
 
 # Configure structured logging
@@ -38,6 +39,7 @@ user_rate_limits = defaultdict(lambda: deque(maxlen=settings.rate_limit_per_user
 
 # Initialize OTP service
 otp_service: SimpleOTPService = None
+bot_commands: FunnyBotCommands = None
 
 
 def check_user_rate_limit(chat_id: str) -> bool:
@@ -71,7 +73,9 @@ async def lifespan(app: FastAPI):
         logger.error("TELEGRAM_BOT_TOKEN not set in environment")
         raise ValueError("TELEGRAM_BOT_TOKEN is required")
     
+    global otp_service, bot_commands
     otp_service = SimpleOTPService(settings.telegram_bot_token)
+    bot_commands = FunnyBotCommands(settings.telegram_bot_token)
     
     # Skip bot token verification due to persistent network timeouts
     logger.info("Skipping bot token verification due to network timeout issues")
@@ -202,5 +206,66 @@ async def root():
         "version": __version__,
         "docs": "/docs",
         "health": "/health",
-        "metrics": "/metrics"
+        "metrics": "/metrics",
+        "webhook": "/webhook"
     }
+
+
+@app.post("/webhook", tags=["Bot"])
+async def telegram_webhook(request: Request):
+    """
+    Handle Telegram bot commands and messages
+    
+    This endpoint receives updates from Telegram when users send commands to the bot.
+    Supports funny commands like /joke, /dice, /fortune, /mood, etc.
+    """
+    try:
+        data = await request.json()
+        
+        # Check if it's a message update
+        if "message" in data:
+            message = data["message"]
+            chat_id = str(message["chat"]["id"])
+            text = message.get("text", "")
+            username = message.get("from", {}).get("username")
+            
+            # Handle commands
+            if text.startswith("/"):
+                command = text.split()[0] if text.split() else text
+                if bot_commands:
+                    success = await bot_commands.handle_command(chat_id, command, username)
+                else:
+                    logger.error("Bot commands not initialized")
+                    return {"status": "error", "message": "Bot commands not available"}
+                
+                if success:
+                    logger.info(f"Handled command '{command}' for user {chat_id}")
+                    return {"status": "success", "command": command}
+                else:
+                    logger.error(f"Failed to handle command '{command}' for user {chat_id}")
+                    return {"status": "error", "message": "Failed to process command"}
+            
+            # Handle regular messages
+            elif text:
+                # Send a friendly response to regular messages
+                responses = [
+                    "Hey! I'm a bot, not a chat buddy! Try /help to see what I can do! 🤖",
+                    "I only understand commands! Type /help to see my superpowers! ⚡",
+                    "Commands only, please! I'm not here for small talk! /help 🎭",
+                    "I'm a security bot, not a therapist! Use /help to see my commands! 🔐",
+                    "Sorry, I only speak in commands! Try /joke for a laugh! 😄"
+                ]
+                
+                import random
+                response = random.choice(responses)
+                if bot_commands:
+                    await bot_commands.send_message(chat_id, response)
+                else:
+                    logger.error("Bot commands not initialized for regular message")
+                return {"status": "success", "message": "Sent response"}
+        
+        return {"status": "ignored", "message": "Not a message update"}
+        
+    except Exception as e:
+        logger.error(f"Error processing webhook: {e}")
+        return {"status": "error", "message": str(e)}
