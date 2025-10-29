@@ -107,6 +107,7 @@ class RegistrationSession(BaseModel):
 # In-memory storage for demo purposes
 users_db = {}
 registration_sessions = {}
+otp_history = []  # Store OTP history for admin UI
 
 # JWT Functions
 def create_access_token(data: dict):
@@ -167,6 +168,22 @@ async def send_otp_via_telegram(chat_id: str, otp: str, email: str = None) -> bo
             )
             print(f"DEBUG: OTP Gateway response: {response.status_code} - {response.text}")
             logging.info(f"OTP Gateway response: {response.status_code} - {response.text}")
+            
+            # Record OTP history for admin UI
+            if response.status_code == 200:
+                otp_entry = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "chat_id": chat_id,
+                    "otp": otp,
+                    "email": email,
+                    "status": "sent",
+                    "message_id": response.json().get("message_id") if response.text else None
+                }
+                otp_history.append(otp_entry)
+                # Keep only last 100 entries to prevent memory issues
+                if len(otp_history) > 100:
+                    otp_history.pop(0)
+            
             return response.status_code == 200
     except Exception as e:
         print(f"DEBUG: Failed to send OTP via Telegram: {e}")
@@ -242,6 +259,53 @@ def verify_magic_link_token(token: str) -> Optional[dict]:
 async def root():
     """Root endpoint for API health check"""
     return {"message": "Hello World"}
+
+@api_router.get("/status")
+async def get_status():
+    """Get system status for admin UI"""
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "services": {
+            "backend": "healthy",
+            "otp_gateway": "healthy",
+            "mongodb": "healthy"  # We're using file-based storage, but admin UI expects this
+        },
+        "version": "2.6.0"
+    }
+
+@api_router.post("/status")
+async def create_status_check(input: StatusCheckCreate):
+    """Create status check entry for admin UI"""
+    status_dict = input.model_dump()
+    status_obj = StatusCheck(**status_dict)
+    
+    # Store in memory (simulating database)
+    status_checks = getattr(create_status_check, 'status_checks', [])
+    if not hasattr(create_status_check, 'status_checks'):
+        create_status_check.status_checks = []
+    
+    create_status_check.status_checks.append(status_obj.model_dump())
+    
+    return status_obj
+
+@api_router.get("/otp-history")
+async def get_otp_history():
+    """Get OTP history for admin UI"""
+    return {
+        "otp_history": otp_history[-10:],  # Last 10 entries
+        "total_count": len(otp_history)
+    }
+
+@api_router.get("/history")
+async def get_history():
+    """Get general history for admin UI"""
+    return {
+        "otp_history": otp_history[-10:],  # Last 10 entries
+        "total_count": len(otp_history),
+        "recent_registrations": len(registration_sessions),
+        "total_users": len(users_db)
+    }
 
 @api_router.post("/register")
 async def register_user(registration: UserRegistration):

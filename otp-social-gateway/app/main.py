@@ -17,7 +17,7 @@ from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
 
 from app.config import settings
 from app.models import SendOTPRequest, SendOTPResponse, ErrorResponse, HealthResponse
-from app.otp_service import OTPService
+from app.simple_otp_service import SimpleOTPService
 from app import __version__
 
 # Configure structured logging
@@ -37,7 +37,7 @@ rate_limit_exceeded_counter = Counter('rate_limit_exceeded_total', 'Total rate l
 user_rate_limits = defaultdict(lambda: deque(maxlen=settings.rate_limit_per_user))
 
 # Initialize OTP service
-otp_service: OTPService = None
+otp_service: SimpleOTPService = None
 
 
 def check_user_rate_limit(chat_id: str) -> bool:
@@ -71,17 +71,10 @@ async def lifespan(app: FastAPI):
         logger.error("TELEGRAM_BOT_TOKEN not set in environment")
         raise ValueError("TELEGRAM_BOT_TOKEN is required")
     
-    otp_service = OTPService(settings.telegram_bot_token)
+    otp_service = SimpleOTPService(settings.telegram_bot_token)
     
-    # Verify bot token (with timeout handling)
-    try:
-        is_valid = await asyncio.wait_for(otp_service.verify_bot_token(), timeout=10.0)
-        if not is_valid:
-            logger.warning("Bot token verification failed, but continuing startup")
-    except asyncio.TimeoutError:
-        logger.warning("Bot token verification timed out, but continuing startup")
-    except Exception as e:
-        logger.warning(f"Bot token verification error: {e}, but continuing startup")
+    # Skip bot token verification due to persistent network timeouts
+    logger.info("Skipping bot token verification due to network timeout issues")
     
     logger.info(f"OTP Social Gateway started on port {settings.port}")
     
@@ -182,12 +175,13 @@ async def send_otp(request: Request, otp_request: SendOTPRequest):
         )
     
     # Send OTP
-    success, response_data = await otp_service.send_otp(
+    response_data = await otp_service.send_otp(
         chat_id=otp_request.chat_id,
         otp=otp_request.otp,
         expire_seconds=otp_request.expire_seconds or settings.default_expire_seconds,
         email=otp_request.email
     )
+    success = response_data.get("success", False)
     
     if success:
         otp_sent_counter.inc()

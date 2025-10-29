@@ -33,8 +33,36 @@ const OTPDashboard = () => {
   });
 
   // API endpoints
-  const OTP_GATEWAY_URL = process.env.REACT_APP_OTP_GATEWAY_URL || 'https://putana.date:55551';
-  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://putana.date:55552';
+  const OTP_GATEWAY_URL = process.env.REACT_APP_OTP_GATEWAY_URL || 'https://putana.date/otp';
+  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://putana.date/api';
+
+  // Fetch OTP history from backend
+  const fetchOtpHistory = async () => {
+    try {
+      const response = await axios.get(`${BACKEND_URL}/otp-history`);
+      if (response.data && response.data.otp_history) {
+        const formattedHistory = response.data.otp_history.map(entry => ({
+          id: entry.message_id || Date.now(),
+          chatId: entry.chat_id,
+          otp: entry.otp,
+          sentAt: new Date(entry.timestamp).toLocaleString(),
+          status: entry.status,
+          email: entry.email,
+          messageId: entry.message_id
+        }));
+        setOtpHistory(formattedHistory);
+        
+        // Update stats
+        setStats(prev => ({
+          ...prev,
+          totalSent: response.data.total_count || 0,
+          totalFailed: 0 // We don't track failures yet
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to fetch OTP history:', error);
+    }
+  };
 
   // Check system health
   const checkSystemHealth = async () => {
@@ -117,7 +145,11 @@ const OTPDashboard = () => {
   // Load initial data
   useEffect(() => {
     checkSystemHealth();
-    const interval = setInterval(checkSystemHealth, 30000); // Check every 30 seconds
+    fetchOtpHistory();
+    const interval = setInterval(() => {
+      checkSystemHealth();
+      fetchOtpHistory();
+    }, 30000); // Check every 30 seconds
     return () => clearInterval(interval);
   }, []);
 
@@ -152,7 +184,7 @@ const OTPDashboard = () => {
             <h1 className="text-3xl font-bold text-gray-900">OTP Social Gateway</h1>
             <p className="text-gray-600">Send secure OTPs via Telegram with auto-delete</p>
           </div>
-          <Button onClick={checkSystemHealth} variant="outline" size="sm">
+          <Button onClick={() => { checkSystemHealth(); fetchOtpHistory(); }} variant="outline" size="sm">
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh Status
           </Button>
