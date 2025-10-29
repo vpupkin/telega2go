@@ -9,7 +9,7 @@ import { CheckCircle, User, Mail, Phone, Shield, ArrowRight, ArrowLeft } from 'l
 
 const UserRegistration = () => {
   const [step, setStep] = useState(1); // 1: Registration Form, 2: OTP Verification, 3: Success
-  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5572';
+  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://putana.date:55552';
   
   const [formData, setFormData] = useState({
     name: '',

@@ -33,8 +33,8 @@ const OTPDashboard = () => {
   });
 
   // API endpoints
-  const OTP_GATEWAY_URL = process.env.REACT_APP_OTP_GATEWAY_URL || 'http://localhost:5571';
-  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5572';
+  const OTP_GATEWAY_URL = process.env.REACT_APP_OTP_GATEWAY_URL || 'https://putana.date:55551';
+  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://putana.date:55552';
 
   // Check system health
   const checkSystemHealth = async () => {

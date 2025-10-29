@@ -35,7 +35,7 @@ api_router = APIRouter(prefix="/api")
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5573", "http://localhost:80"],
+    allow_origins=["http://localhost:55553", "http://localhost:80", "https://putana.date"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -316,7 +316,7 @@ async def verify_otp(verification: OTPVerification):
         raise HTTPException(status_code=500, detail="Failed to create magic link")
     
     # Return magic link URL instead of direct success
-    magic_link_url = f"http://localhost:5573/verify?token={magic_link_token}"
+    magic_link_url = f"https://putana.date/otp/verify?token={magic_link_token}"
     
     return {
         "message": "OTP verified successfully. Please check your email for the magic link.",

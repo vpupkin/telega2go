@@ -7,7 +7,7 @@ services:
     container_name: telega2go-mongodb
     restart: unless-stopped
     ports:
-      - "5574:27017"
+      - "55554:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: password123
@@ -31,7 +31,7 @@ services:
     container_name: telega2go-otp-gateway
     restart: unless-stopped
     ports:
-      - "5571:55155"
+      - "55551:55155"
     environment:
       - TELEGRAM_BOT_TOKEN=8021082793:AAE56NV3KZ76qkRGrGv9kKk3Wq17n_exvzQ
       - DEFAULT_EXPIRE_SECONDS=${DEFAULT_EXPIRE_SECONDS:-30}
@@ -58,11 +58,11 @@ services:
     container_name: telega2go-backend
     restart: unless-stopped
     ports:
-      - "5572:8000"
+      - "55552:8000"
     environment:
       - MONGO_URL=mongodb://admin:password123@mongodb:27017/telega2go?authSource=admin
       - DB_NAME=telega2go
-      - CORS_ORIGINS=http://localhost:5573,http://localhost:80
+      - CORS_ORIGINS=http://localhost:55553,http://localhost:80,https://putana.date
       - JWT_SECRET=your-super-secret-jwt-key-change-in-production
       - OTP_GATEWAY_URL=http://otp-gateway:55155
     networks:
@@ -85,10 +85,10 @@ services:
     container_name: telega2go-frontend
     restart: unless-stopped
     ports:
-      - "5573:80"
+      - "55553:80"
     environment:
-      - REACT_APP_BACKEND_URL=http://localhost:5572
-      - REACT_APP_OTP_GATEWAY_URL=http://localhost:5571
+      - REACT_APP_BACKEND_URL=https://putana.date:55552
+      - REACT_APP_OTP_GATEWAY_URL=https://putana.date:55551
     networks:
       - telega2go-network
     healthcheck:

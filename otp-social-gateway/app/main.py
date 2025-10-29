@@ -91,20 +91,21 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down OTP Social Gateway...")
 
 
-# Initialize FastAPI app
+# Initialize FastAPI app with /otp/ prefix for Apache2 compatibility
 app = FastAPI(
     title="OTP Social Gateway",
     description="Secure OTP delivery via Telegram with self-destructing messages",
     version=__version__,
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc"
+    docs_url="/otp/docs",
+    redoc_url="/otp/redoc",
+    root_path="/otp"
 )
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5573", "http://localhost:80"],
+    allow_origins=["http://localhost:55553", "http://localhost:80", "https://putana.date"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

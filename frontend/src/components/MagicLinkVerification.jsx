@@ -14,7 +14,7 @@ const MagicLinkVerification = () => {
   const [error, setError] = useState('');
   const [user, setUser] = useState(null);
   
-  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:5572";
+  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "https://putana.date:55552";
   const token = searchParams.get('token');
 
   useEffect(() => {
