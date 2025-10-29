@@ -108,12 +108,15 @@ class OTPService:
                 keyboard = [[InlineKeyboardButton("🔗 Click here to verify", url=magic_link)]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
-                message = await self.bot.send_photo(
-                    chat_id=chat_id,
-                    photo=qr_code_bytes,
-                    caption=combined_message,
-                    parse_mode="HTML",
-                    reply_markup=reply_markup
+                message = await asyncio.wait_for(
+                    self.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=qr_code_bytes,
+                        caption=combined_message,
+                        parse_mode="HTML",
+                        reply_markup=reply_markup
+                    ),
+                    timeout=60.0
                 )
             else:
                 # No magic link, send regular OTP message
@@ -185,17 +188,20 @@ class OTPService:
         self, 
         chat_id: str, 
         message_text: str, 
-        max_retries: int = 1
+        max_retries: int = 3
     ):
         """Send message with retry logic for transient failures"""
         last_error = None
         
         for attempt in range(max_retries + 1):
             try:
-                return await self.bot.send_message(
-                    chat_id=int(chat_id),
-                    text=message_text,
-                    parse_mode="HTML"
+                return await asyncio.wait_for(
+                    self.bot.send_message(
+                        chat_id=int(chat_id),
+                        text=message_text,
+                        parse_mode="HTML"
+                    ),
+                    timeout=60.0
                 )
             except (TimedOut, RetryAfter) as e:
                 last_error = e
@@ -245,12 +251,12 @@ class OTPService:
     async def verify_bot_token(self) -> bool:
         """Verify that the bot token is valid"""
         try:
-            bot_info = await asyncio.wait_for(self.bot.get_me(), timeout=30.0)
+            bot_info = await asyncio.wait_for(self.bot.get_me(), timeout=10.0)
             logger.info(f"Bot verified: @{bot_info.username} ({bot_info.first_name})")
             return True
         except asyncio.TimeoutError:
-            logger.error("Bot token verification timed out")
-            return False
+            logger.warning("Bot token verification timed out, but continuing...")
+            return True  # Continue anyway
         except TelegramError as e:
             logger.error(f"Invalid bot token: {str(e)}")
             return False

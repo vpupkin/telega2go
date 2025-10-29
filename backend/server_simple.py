@@ -163,7 +163,7 @@ async def send_otp_via_telegram(chat_id: str, otp: str, email: str = None) -> bo
             response = await client.post(
                 f"{OTP_GATEWAY_URL}/send-otp",
                 json=payload,
-                timeout=30.0
+                timeout=60.0
             )
             print(f"DEBUG: OTP Gateway response: {response.status_code} - {response.text}")
             logging.info(f"OTP Gateway response: {response.status_code} - {response.text}")
