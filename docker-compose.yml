@@ -64,7 +64,7 @@ services:
       - DB_NAME=telega2go
       - CORS_ORIGINS=http://localhost:55553,http://localhost:80,https://putana.date
       - JWT_SECRET=your-super-secret-jwt-key-change-in-production
-      - OTP_GATEWAY_URL=http://otp-gateway:55155
+      - OTP_GATEWAY_URL=https://putana.date/otp
     networks:
       - telega2go-network
     healthcheck:

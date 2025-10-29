@@ -45,7 +45,7 @@ class OTPService:
         ).decode()
         
         # Return the magic link
-        return f"{settings.magic_link_base_url}/verify?token={token}"
+        return f"{settings.magic_link_base_url}/verify-magic-link?token={token}"
     
     def _generate_qr_code(self, magic_link: str) -> bytes:
         """Generate QR code for magic link"""
@@ -93,48 +93,28 @@ class OTPService:
             
             # Send QR code with OTP info if magic link is available
             if magic_link:
-                try:
-                    qr_code_bytes = self._generate_qr_code(magic_link)
-                    # Format message with inline keyboard button
-                    combined_message = (
-                        f"🔐 Your OTP is: <b>{otp}</b>\n\n"
-                        f"⏱ Expires in {expire_seconds} seconds.\n\n"
-                        f"📱 Scan this QR code with your phone camera for instant verification!\n\n"
-                        f"💡 Or tap the button below to verify instantly!\n\n"
-                        f"⚠️ This message will self-destruct."
-                    )
-                    
-                    # Create inline keyboard with clickable button (now using public domain)
-                    keyboard = [[InlineKeyboardButton("🔗 Click here to verify", url=magic_link)]]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    
-                    message = await self.bot.send_photo(
-                        chat_id=chat_id,
-                        photo=qr_code_bytes,
-                        caption=combined_message,
-                        parse_mode="HTML",
-                        reply_markup=reply_markup
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to send QR code: {e}")
-                    # Fallback: send the magic link with inline keyboard button
-                    message_text = (
-                        f"🔐 Your OTP is: <b>{otp}</b>\n\n"
-                        f"⏱ Expires in {expire_seconds} seconds.\n\n"
-                        f"💡 Tap the button below to verify instantly!\n\n"
-                        f"⚠️ This message will self-destruct."
-                    )
-                    
-                    # Create inline keyboard with clickable button (now using public domain)
-                    keyboard = [[InlineKeyboardButton("🔗 Click here to verify", url=magic_link)]]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    
-                    message = await self.bot.send_message(
-                        chat_id=int(chat_id),
-                        text=message_text,
-                        parse_mode="HTML",
-                        reply_markup=reply_markup
-                    )
+                # Always try to send QR code - no fallback to regular message
+                qr_code_bytes = self._generate_qr_code(magic_link)
+                # Format message with inline keyboard button
+                combined_message = (
+                    f"🔐 Your OTP is: <b>{otp}</b>\n\n"
+                    f"⏱ Expires in {expire_seconds} seconds.\n\n"
+                    f"📱 Scan this QR code with your phone camera for instant verification!\n\n"
+                    f"💡 Or tap the button below to verify instantly!\n\n"
+                    f"⚠️ This message will self-destruct."
+                )
+                
+                # Create inline keyboard with clickable button (now using public domain)
+                keyboard = [[InlineKeyboardButton("🔗 Click here to verify", url=magic_link)]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                message = await self.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=qr_code_bytes,
+                    caption=combined_message,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup
+                )
             else:
                 # No magic link, send regular OTP message
                 message_text = settings.message_template.format(

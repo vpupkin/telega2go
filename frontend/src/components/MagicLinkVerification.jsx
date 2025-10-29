@@ -31,7 +31,7 @@ const MagicLinkVerification = () => {
     try {
       setStatus('verifying');
       
-      const response = await axios.post(`${BACKEND_URL}/api/verify-magic-link`, null, {
+      const response = await axios.post(`${BACKEND_URL}/verify-magic-link`, null, {
         params: { token }
       });
 
@@ -50,7 +50,7 @@ const MagicLinkVerification = () => {
         }, 3000);
       }
     } catch (error) {
-      console.error('Magic link verification failed:', error);
+      // console.error('Magic link verification failed:', error);
       setStatus('error');
       setError(error.response?.data?.detail || 'Verification failed');
       toast.error('Magic link verification failed');

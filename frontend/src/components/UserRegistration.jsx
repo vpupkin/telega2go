@@ -66,7 +66,7 @@ const UserRegistration = () => {
 
     try {
       // Step 1: Register user and send OTP
-      const response = await fetch(`${BACKEND_URL}/api/register`, {
+      const response = await fetch(`${BACKEND_URL}/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -109,7 +109,7 @@ const UserRegistration = () => {
     setError('');
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/verify-otp`, {
+      const response = await fetch(`${BACKEND_URL}/verify-otp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -148,7 +148,7 @@ const UserRegistration = () => {
     setError('');
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/resend-otp`, {
+      const response = await fetch(`${BACKEND_URL}/resend-otp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

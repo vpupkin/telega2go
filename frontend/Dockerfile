@@ -14,8 +14,8 @@ RUN npm install --legacy-peer-deps
 COPY . .
 
 # Set environment variables
-ENV REACT_APP_BACKEND_URL=https://putana.date:5572
-ENV REACT_APP_OTP_GATEWAY_URL=http://localhost:5571
+ENV REACT_APP_BACKEND_URL=https://putana.date/api
+ENV REACT_APP_OTP_GATEWAY_URL=https://putana.date/otp
 
 # Fix dependency issues and build the application
 RUN npm install ajv@^8.0.0 --save-dev --legacy-peer-deps

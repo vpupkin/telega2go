@@ -126,7 +126,7 @@ async def send_otp_via_telegram(chat_id: str, otp: str):
                 json={
                     "chat_id": chat_id,
                     "otp": otp,
-                    "expire_seconds": 300  # 5 minutes
+                    "expire_seconds": 60  # 1 minute (max allowed)
                 },
                 timeout=30.0
             )

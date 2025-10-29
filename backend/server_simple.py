@@ -156,15 +156,20 @@ async def send_otp_via_telegram(chat_id: str, otp: str, email: str = None) -> bo
         if email:
             payload["email"] = email
             
+        print(f"DEBUG: Sending OTP to {OTP_GATEWAY_URL}/send-otp with payload: {payload}")
+        logging.info(f"Sending OTP to {OTP_GATEWAY_URL}/send-otp with payload: {payload}")
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{OTP_GATEWAY_URL}/send-otp",
                 json=payload,
                 timeout=30.0
             )
+            print(f"DEBUG: OTP Gateway response: {response.status_code} - {response.text}")
             logging.info(f"OTP Gateway response: {response.status_code} - {response.text}")
             return response.status_code == 200
     except Exception as e:
+        print(f"DEBUG: Failed to send OTP via Telegram: {e}")
         logging.error(f"Failed to send OTP via Telegram: {e}")
         return False
 
@@ -182,13 +187,13 @@ def create_magic_link_token(email: str, otp: str) -> Optional[str]:
         
         # Create signature
         signature = hmac.new(
-            JWT_SECRET.encode(),
+            MAGIC_LINK_SECRET.encode(),
             token_data.encode(),
             hashlib.sha256
-        ).hexdigest()
+        ).digest()
         
         # Combine data and signature
-        full_token = f"{token_data}:{signature}"
+        full_token = f"{token_data}:{base64.urlsafe_b64encode(signature).decode()}"
         
         # Encode to base64 URL-safe
         token = base64.urlsafe_b64encode(full_token.encode()).decode()
@@ -207,12 +212,12 @@ def verify_magic_link_token(token: str) -> Optional[dict]:
         
         # Verify signature
         expected_signature = hmac.new(
-            JWT_SECRET.encode(),
+            MAGIC_LINK_SECRET.encode(),
             token_data.encode(),
             hashlib.sha256
-        ).hexdigest()
+        ).digest()
         
-        if not hmac.compare_digest(expected_signature, signature):
+        if not hmac.compare_digest(expected_signature, base64.urlsafe_b64decode(signature)):
             return None
         
         # Parse token data
@@ -272,7 +277,11 @@ async def register_user(registration: UserRegistration):
     
     registration_sessions[registration.email] = session_data
     
+    print(f"DEBUG: Attempting to send OTP via Telegram to chat_id: {chat_id}")
+    logging.info(f"Attempting to send OTP via Telegram to chat_id: {chat_id}")
     otp_sent = await send_otp_via_telegram(chat_id, otp, registration.email)
+    print(f"DEBUG: OTP sending result: {otp_sent}")
+    logging.info(f"OTP sending result: {otp_sent}")
     
     if not otp_sent:
         # KISS: For testing, return OTP in response when Telegram fails
@@ -316,7 +325,7 @@ async def verify_otp(verification: OTPVerification):
         raise HTTPException(status_code=500, detail="Failed to create magic link")
     
     # Return magic link URL instead of direct success
-    magic_link_url = f"https://putana.date/otp/verify?token={magic_link_token}"
+    magic_link_url = f"https://putana.date/api/verify-magic-link?token={magic_link_token}"
     
     return {
         "message": "OTP verified successfully. Please check your email for the magic link.",
@@ -342,7 +351,7 @@ async def resend_otp(request: dict):
     session["otp"] = new_otp
     
     # Send new OTP
-    otp_sent = await send_otp_via_telegram(session["user_data"]["telegram_chat_id"], new_otp)
+    otp_sent = await send_otp_via_telegram(session["user_data"]["telegram_chat_id"], new_otp, email)
     
     if not otp_sent:
         # KISS: For testing, return OTP in response when Telegram fails
@@ -379,31 +388,129 @@ async def get_profile(token: str = None):
         created_at=datetime.fromisoformat(user_data["created_at"].replace('Z', '+00:00'))
     )
 
-@api_router.post("/verify-magic-link")
+@api_router.get("/verify-magic-link")
 async def verify_magic_link(token: str = Query(...)):
     """Verify magic link and complete registration"""
+    from fastapi.responses import HTMLResponse
+    
     # Verify the magic link token
     token_data = verify_magic_link_token(token)
     if not token_data:
-        raise HTTPException(status_code=400, detail="Invalid or expired magic link")
+        error_html = """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Invalid Magic Link - Telega2Go</title>
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background-color: #f5f5f5; }
+                .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+                .error { color: #dc3545; font-size: 24px; margin-bottom: 20px; }
+                .btn { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block; margin: 10px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="error">❌ Invalid or Expired Magic Link</div>
+                <h2>This magic link is invalid or has expired.</h2>
+                <p>Please request a new registration or contact support if you continue to have issues.</p>
+                <a href="/" class="btn">Go to Registration</a>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=error_html, status_code=400)
     
     email = token_data["email"]
     otp = token_data["otp"]
     
     # Check if registration session exists
     if email not in registration_sessions:
-        raise HTTPException(status_code=400, detail="No registration session found")
+        error_html = """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Session Not Found - Telega2Go</title>
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background-color: #f5f5f5; }
+                .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+                .error { color: #dc3545; font-size: 24px; margin-bottom: 20px; }
+                .btn { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block; margin: 10px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="error">❌ Registration Session Not Found</div>
+                <h2>This magic link has already been used or the session has expired.</h2>
+                <p>Please start a new registration process.</p>
+                <a href="/" class="btn">Start New Registration</a>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=error_html, status_code=400)
     
     session = registration_sessions[email]
     
     # Verify OTP matches
     if session["otp"] != otp:
-        raise HTTPException(status_code=400, detail="Invalid OTP in magic link")
+        error_html = """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Invalid OTP - Telega2Go</title>
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background-color: #f5f5f5; }
+                .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+                .error { color: #dc3545; font-size: 24px; margin-bottom: 20px; }
+                .btn { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block; margin: 10px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="error">❌ Invalid OTP</div>
+                <h2>The OTP in this magic link is invalid.</h2>
+                <p>Please request a new registration or contact support.</p>
+                <a href="/" class="btn">Start New Registration</a>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=error_html, status_code=400)
     
     # Check if session is not expired
     expires_at = datetime.fromisoformat(session["expires_at"].replace('Z', '+00:00'))
     if datetime.now(timezone.utc) > expires_at:
-        raise HTTPException(status_code=400, detail="Registration session expired")
+        error_html = """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Session Expired - Telega2Go</title>
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background-color: #f5f5f5; }
+                .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+                .error { color: #dc3545; font-size: 24px; margin-bottom: 20px; }
+                .btn { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block; margin: 10px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="error">❌ Session Expired</div>
+                <h2>This registration session has expired.</h2>
+                <p>Please start a new registration process.</p>
+                <a href="/" class="btn">Start New Registration</a>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=error_html, status_code=400)
     
     # Create user
     user_data = session["user_data"]
@@ -428,19 +535,92 @@ async def verify_magic_link(token: str = Query(...)):
     # Clean up registration session
     del registration_sessions[email]
     
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user.id,
-            "name": user.name,
-            "email": user.email,
-            "phone": user.phone,
-            "telegram_chat_id": user.telegram_chat_id,
-            "is_verified": user.is_verified,
-            "created_at": user.created_at
-        }
-    }
+    # Return HTML page instead of JSON
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Registration Successful - Telega2Go</title>
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                max-width: 600px;
+                margin: 50px auto;
+                padding: 20px;
+                background-color: #f5f5f5;
+            }}
+            .container {{
+                background: white;
+                padding: 30px;
+                border-radius: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                text-align: center;
+            }}
+            .success {{
+                color: #28a745;
+                font-size: 24px;
+                margin-bottom: 20px;
+            }}
+            .user-info {{
+                background: #f8f9fa;
+                padding: 20px;
+                border-radius: 5px;
+                margin: 20px 0;
+                text-align: left;
+            }}
+            .token {{
+                background: #e9ecef;
+                padding: 10px;
+                border-radius: 5px;
+                font-family: monospace;
+                word-break: break-all;
+                margin: 10px 0;
+            }}
+            .btn {{
+                background: #007bff;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                margin: 10px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="success">✅ Registration Successful!</div>
+            <h2>Welcome to Telega2Go, {user.name}!</h2>
+            
+            <div class="user-info">
+                <h3>Your Account Details:</h3>
+                <p><strong>Name:</strong> {user.name}</p>
+                <p><strong>Email:</strong> {user.email}</p>
+                <p><strong>Phone:</strong> {user.phone}</p>
+                <p><strong>Telegram Chat ID:</strong> {user.telegram_chat_id}</p>
+                <p><strong>Status:</strong> ✅ Verified</p>
+                <p><strong>Registered:</strong> {user.created_at.strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
+            </div>
+            
+            <div class="user-info">
+                <h3>Your Access Token:</h3>
+                <div class="token">{access_token}</div>
+                <p><small>Keep this token secure. It expires in 24 hours.</small></p>
+            </div>
+            
+            <a href="/" class="btn">Go to Dashboard</a>
+            <a href="/admin" class="btn">Admin Panel</a>
+        </div>
+    </body>
+    </html>
+    """
+    
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html_content, status_code=200)
 
 # Include the API router
 app.include_router(api_router)

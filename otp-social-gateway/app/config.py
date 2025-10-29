@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     max_expire_seconds: int = 60
     
     # Rate Limiting
-    rate_limit_per_user: int = 50
+    rate_limit_per_user: int = 100
     rate_limit_window_hours: int = 1
     
     # Server Configuration
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     message_template: str = "🔐 Your OTP is: {otp}\n\n⏱ Expires in {sec} seconds.\n\n⚠️ This message will self-destruct."
     
     # Magic Link Configuration
-    magic_link_base_url: str = "https://putana.date/otp"
+    magic_link_base_url: str = "https://putana.date/api"
     magic_link_secret: str = "your-magic-link-secret-change-in-production"
     
     class Config:

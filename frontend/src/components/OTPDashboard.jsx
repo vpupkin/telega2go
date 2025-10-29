@@ -48,7 +48,7 @@ const OTPDashboard = () => {
 
     try {
       // Check Backend
-      const backendResponse = await axios.get(`${BACKEND_URL}/api/`);
+      const backendResponse = await axios.get(`${BACKEND_URL}/`);
       setSystemStatus(prev => ({ ...prev, backend: 'healthy' }));
     } catch (error) {
       setSystemStatus(prev => ({ ...prev, backend: 'error' }));
