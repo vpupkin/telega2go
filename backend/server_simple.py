@@ -168,6 +168,36 @@ async def send_otp_via_telegram(chat_id: str, otp: str, email: str = None) -> bo
         logging.error(f"Failed to send OTP via Telegram: {e}")
         return False
 
+def create_magic_link_token(email: str, otp: str) -> Optional[str]:
+    """Create a magic link token with email, OTP, timestamp, and signature"""
+    try:
+        import time
+        import hmac
+        import hashlib
+        import base64
+        
+        # Create token data
+        token_time = str(int(time.time()))
+        token_data = f"{email}:{otp}:{token_time}"
+        
+        # Create signature
+        signature = hmac.new(
+            JWT_SECRET.encode(),
+            token_data.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        # Combine data and signature
+        full_token = f"{token_data}:{signature}"
+        
+        # Encode to base64 URL-safe
+        token = base64.urlsafe_b64encode(full_token.encode()).decode()
+        
+        return token
+    except Exception as e:
+        logging.error(f"Failed to create magic link token: {e}")
+        return None
+
 def verify_magic_link_token(token: str) -> Optional[dict]:
     """Verify and decode magic link token"""
     try:
@@ -177,14 +207,12 @@ def verify_magic_link_token(token: str) -> Optional[dict]:
         
         # Verify signature
         expected_signature = hmac.new(
-            MAGIC_LINK_SECRET.encode(),
+            JWT_SECRET.encode(),
             token_data.encode(),
             hashlib.sha256
-        ).digest()
+        ).hexdigest()
         
-        provided_signature = base64.urlsafe_b64decode(signature.encode())
-        
-        if not hmac.compare_digest(expected_signature, provided_signature):
+        if not hmac.compare_digest(expected_signature, signature):
             return None
         
         # Parse token data
@@ -275,43 +303,26 @@ async def verify_otp(verification: OTPVerification):
     if datetime.now(timezone.utc) > expires_at:
         raise HTTPException(status_code=400, detail="OTP has expired")
     
-    # Create user
+    # Create magic link token instead of directly creating user
     user_data = session["user_data"]
     # Use resolved chat_id from session if available, otherwise use the original chat_id
     chat_id = session.get("resolved_chat_id") or user_data.get("telegram_chat_id")
     if not chat_id:
         raise HTTPException(status_code=400, detail="Telegram chat ID not found")
     
-    user = User(
-        id=str(uuid.uuid4()),
-        name=user_data["name"],
-        email=user_data["email"],
-        phone=user_data["phone"],
-        telegram_chat_id=chat_id,
-        is_verified=True
-    )
+    # Create magic link token
+    magic_link_token = create_magic_link_token(verification.email, verification.otp)
+    if not magic_link_token:
+        raise HTTPException(status_code=500, detail="Failed to create magic link")
     
-    users_db[verification.email] = user.model_dump()
+    # Return magic link URL instead of direct success
+    magic_link_url = f"http://localhost:5573/verify?token={magic_link_token}"
     
-    # Clean up session
-    del registration_sessions[verification.email]
-    
-    # Create JWT token
-    access_token = create_access_token({"sub": user.email, "user_id": user.id})
-    
-    return TokenResponse(
-        access_token=access_token,
-        token_type="bearer",
-        user=UserResponse(
-            id=user.id,
-            name=user.name,
-            email=user.email,
-            phone=user.phone,
-            telegram_chat_id=user.telegram_chat_id,
-            is_verified=user.is_verified,
-            created_at=user.created_at
-        )
-    )
+    return {
+        "message": "OTP verified successfully. Please check your email for the magic link.",
+        "magic_link": magic_link_url,
+        "token": magic_link_token
+    }
 
 @api_router.post("/resend-otp")
 async def resend_otp(request: dict):
@@ -396,11 +407,16 @@ async def verify_magic_link(token: str = Query(...)):
     
     # Create user
     user_data = session["user_data"]
+    # Use resolved chat_id from session if available, otherwise use the original chat_id
+    chat_id = session.get("resolved_chat_id") or user_data.get("telegram_chat_id")
+    if not chat_id:
+        raise HTTPException(status_code=400, detail="Telegram chat ID not found")
+    
     user = User(
         name=user_data["name"],
         email=user_data["email"],
         phone=user_data["phone"],
-        telegram_chat_id=user_data["telegram_chat_id"],
+        telegram_chat_id=chat_id,
         is_verified=True
     )
     

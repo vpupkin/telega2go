@@ -1,0 +1,47 @@
+{
+  "timestamp": "2025-10-29T01:34:59.572092",
+  "duration_seconds": 0.155854,
+  "summary": {
+    "total_tests": 6,
+    "passed": 5,
+    "failed": 1,
+    "success_rate": "83.3%"
+  },
+  "results": [
+    {
+      "name": "System Health",
+      "passed": true,
+      "duration": 0.006611824035644531
+    },
+    {
+      "name": "Docker Services",
+      "passed": true,
+      "duration": 0.09268689155578613
+    },
+    {
+      "name": "Complete User Journey",
+      "passed": false,
+      "duration": 0.022008657455444336
+    },
+    {
+      "name": "Resend OTP Functionality",
+      "passed": true,
+      "duration": 0.021373271942138672
+    },
+    {
+      "name": "Error Handling",
+      "passed": true,
+      "duration": 0.007048130035400391
+    },
+    {
+      "name": "Performance",
+      "passed": true,
+      "duration": 0.006001472473144531
+    }
+  ],
+  "system_info": {
+    "backend_url": "http://localhost:5572",
+    "frontend_url": "http://localhost:5573",
+    "otp_gateway_url": "http://localhost:5571"
+  }
+}

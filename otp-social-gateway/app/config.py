@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     max_expire_seconds: int = 60
     
     # Rate Limiting
-    rate_limit_per_user: int = 5
+    rate_limit_per_user: int = 50
     rate_limit_window_hours: int = 1
     
     # Server Configuration

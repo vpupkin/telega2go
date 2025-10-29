@@ -126,8 +126,16 @@ const UserRegistration = () => {
       }
 
       const data = await response.json();
-      setSuccess('Registration completed successfully!');
-      setStep(3); // Move to success step
+      
+      // Check if we got a magic link
+      if (data.magic_link) {
+        setSuccess('OTP verified! Please check your email for the magic link to complete registration.');
+        // Redirect to magic link verification page
+        window.location.href = data.magic_link;
+      } else {
+        setSuccess('Registration completed successfully!');
+        setStep(3); // Move to success step
+      }
     } catch (err) {
       setError(err.message);
     } finally {
