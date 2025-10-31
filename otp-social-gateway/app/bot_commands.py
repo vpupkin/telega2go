@@ -892,11 +892,21 @@ class FunnyBotCommands:
                     title = title.replace("{name}", user_name)
                     initial_message = initial_message.replace("{name}", user_name)
                 
-                # Create inline keyboard with button
-                keyboard = [[{
-                    "text": button_text,
-                    "callback_data": callback_data_map.get(action_key, f"action_{action_key}")
-                }]]
+                # ✅ PENALTY FIX: For joinToMe, add registration URL button
+                if action_key == "joinToMe":
+                    # Generate registration URL with telegram_user_id
+                    registration_url = f"https://putana.date/registrationOfNewUser?telegram_user_id={telegram_user_id}"
+                    # Create inline keyboard with URL button
+                    keyboard = [[{
+                        "text": button_text,
+                        "url": registration_url  # ✅ URL button instead of callback
+                    }]]
+                else:
+                    # For other actions, use callback_data button
+                    keyboard = [[{
+                        "text": button_text,
+                        "callback_data": callback_data_map.get(action_key, f"action_{action_key}")
+                    }]]
                 
                 result = {
                     "type": "article",
