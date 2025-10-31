@@ -975,8 +975,49 @@ class FunnyBotCommands:
                 "action_welcomeBack": "welcomeBack"
             }
             
-            # Get action key
+            # ✅ PENALTY++ FIX: joinToMe uses URL button, should not trigger callback
+            # If callback_data is for joinToMe, this means URL button didn't work
+            # Redirect user by sending the registration URL in response
+            if callback_data == "action_joinToMe":
+                # Extract telegram_user_id from chat_id (they're the same for inline queries)
+                telegram_user_id = int(chat_id)
+                registration_url = f"https://putana.date/registrationOfNewUser?telegram_user_id={telegram_user_id}"
+                
+                # Send message with clickable URL
+                response_text = f"👥 <b>Join To Me</b>\n\n🚀 <a href='{registration_url}'>Click here to start registration →</a>"
+                
+                # Answer callback and send URL message
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    # Answer callback to remove loading state
+                    await client.post(
+                        f"{self.telegram_api_base}/answerCallbackQuery",
+                        json={
+                            "callback_query_id": callback_query_id,
+                            "text": "",  # Empty text, we'll send message instead
+                            "show_alert": False
+                        }
+                    )
+                    
+                    # Send message with clickable registration URL
+                    await client.post(
+                        f"{self.telegram_api_base}/sendMessage",
+                        json={
+                            "chat_id": chat_id,
+                            "text": response_text,
+                            "parse_mode": "HTML",
+                            "disable_web_page_preview": False
+                        }
+                    )
+                
+                logger.info(f"Sent registration URL to user {telegram_user_id}: {registration_url}")
+                return True
+            
+            # Get action key for other actions
             action_key = action_key_map.get(callback_data)
+            
+            # Skip joinToMe here - already handled above
+            if action_key == "joinToMe":
+                return True  # Already handled, return success
             
             if action_key:
                 # Get translated response text
