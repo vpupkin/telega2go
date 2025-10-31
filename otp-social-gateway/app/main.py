@@ -214,13 +214,57 @@ async def root():
 @app.post("/webhook", tags=["Bot"])
 async def telegram_webhook(request: Request):
     """
-    Handle Telegram bot commands and messages
+    Handle Telegram bot commands, messages, inline queries, and callback queries
     
-    This endpoint receives updates from Telegram when users send commands to the bot.
-    Supports funny commands like /joke, /dice, /fortune, /mood, etc.
+    This endpoint receives updates from Telegram when users:
+    - Send commands to the bot (/start, /help, etc.)
+    - Mention the bot with @telego (inline queries)
+    - Click buttons in messages (callback queries)
     """
     try:
         data = await request.json()
+        
+        # Handle inline queries (when @telego is typed)
+        if "inline_query" in data:
+            inline_query = data["inline_query"]
+            inline_query_id = inline_query["id"]
+            query = inline_query.get("query", "")
+            user_id = str(inline_query["from"]["id"])
+            
+            if bot_commands:
+                success = await bot_commands.handle_inline_query(inline_query_id, query, user_id)
+                if success:
+                    logger.info(f"Handled inline query from user {user_id}")
+                    return {"status": "success", "type": "inline_query"}
+                else:
+                    logger.error(f"Failed to handle inline query from user {user_id}")
+                    return {"status": "error", "message": "Failed to process inline query"}
+            else:
+                logger.error("Bot commands not initialized")
+                return {"status": "error", "message": "Bot commands not available"}
+        
+        # Handle callback queries (when buttons are clicked)
+        if "callback_query" in data:
+            callback_query = data["callback_query"]
+            callback_query_id = callback_query["id"]
+            callback_data = callback_query.get("data", "")
+            message = callback_query.get("message", {})
+            chat_id = str(message.get("chat", {}).get("id", ""))
+            message_id = message.get("message_id", 0)
+            
+            if bot_commands:
+                success = await bot_commands.handle_callback_query(
+                    callback_query_id, chat_id, message_id, callback_data
+                )
+                if success:
+                    logger.info(f"Handled callback query '{callback_data}' from chat {chat_id}")
+                    return {"status": "success", "type": "callback_query"}
+                else:
+                    logger.error(f"Failed to handle callback query from chat {chat_id}")
+                    return {"status": "error", "message": "Failed to process callback query"}
+            else:
+                logger.error("Bot commands not initialized")
+                return {"status": "error", "message": "Bot commands not available"}
         
         # Check if it's a message update
         if "message" in data:
@@ -264,7 +308,7 @@ async def telegram_webhook(request: Request):
                     logger.error("Bot commands not initialized for regular message")
                 return {"status": "success", "message": "Sent response"}
         
-        return {"status": "ignored", "message": "Not a message update"}
+        return {"status": "ignored", "message": "Not a recognized update type"}
         
     except Exception as e:
         logger.error(f"Error processing webhook: {e}")

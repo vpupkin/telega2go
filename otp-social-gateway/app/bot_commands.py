@@ -214,3 +214,135 @@ Try one of these:
         message += "\n\nType /help to see what I can do! 😊"
         
         return await self.send_message(chat_id, message)
+    
+    async def handle_inline_query(self, inline_query_id: str, query: str, user_id: str) -> bool:
+        """Handle inline queries when @telego is mentioned in any chat"""
+        try:
+            # Define menu actions with emojis
+            menu_actions = [
+                {
+                    "id": "1",
+                    "title": "👥 Join To Me",
+                    "description": "Connect and join the community",
+                    "initial_message": "👥 <b>Join To Me</b>\n\nSelect an action:",
+                    "button_text": "👥 Join To Me",
+                    "callback_data": "action_joinToMe"
+                },
+                {
+                    "id": "2",
+                    "title": "📖 Explain What Is This",
+                    "description": "Learn about Telega2Go and its features",
+                    "initial_message": "📖 <b>Explain What Is This</b>\n\nSelect an action:",
+                    "button_text": "📖 Explain",
+                    "callback_data": "action_explainWhatIsThis"
+                },
+                {
+                    "id": "3",
+                    "title": "💰 What Is My Balance",
+                    "description": "Check your account balance",
+                    "initial_message": "💰 <b>What Is My Balance</b>\n\nSelect an action:",
+                    "button_text": "💰 Check Balance",
+                    "callback_data": "action_whatIsMyBalance"
+                },
+                {
+                    "id": "4",
+                    "title": "📋 Show Last Actions",
+                    "description": "View your recent activity history",
+                    "initial_message": "📋 <b>Show Last Actions</b>\n\nSelect an action:",
+                    "button_text": "📋 Show Actions",
+                    "callback_data": "action_showLastactions"
+                }
+            ]
+            
+            # Build inline query results
+            results = []
+            for action in menu_actions:
+                # Create inline keyboard with button that will appear in the sent message
+                keyboard = [[{
+                    "text": action["button_text"],
+                    "callback_data": action["callback_data"]
+                }]]
+                
+                result = {
+                    "type": "article",
+                    "id": action["id"],
+                    "title": action["title"],
+                    "description": action["description"],
+                    "message_text": action["initial_message"],
+                    "parse_mode": "HTML",
+                    "reply_markup": {
+                        "inline_keyboard": keyboard
+                    }
+                }
+                results.append(result)
+            
+            # Answer the inline query
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{self.telegram_api_base}/answerInlineQuery",
+                    json={
+                        "inline_query_id": inline_query_id,
+                        "results": results,
+                        "cache_time": 1
+                    }
+                )
+                return response.status_code == 200
+                
+        except Exception as e:
+            print(f"Failed to handle inline query: {e}")
+            return False
+    
+    async def handle_callback_query(self, callback_query_id: str, chat_id: str, message_id: int, callback_data: str) -> bool:
+        """Handle callback queries when menu buttons are pressed - posts answer into chat"""
+        try:
+            # Define responses for each action
+            responses = {
+                "action_joinToMe": "👥 <b>Join To Me</b>\n\n[PLACEHOLDER] This feature will allow you to join the community or connect with other users.\n\n<i>Coming soon with full implementation!</i>",
+                "action_explainWhatIsThis": "📖 <b>Explain What Is This</b>\n\n[PLACEHOLDER] Telega2Go is a secure OTP delivery system with Telegram integration. This bot helps you:\n\n🔐 Secure OTP delivery\n📱 QR code verification\n🔒 Self-destructing messages\n🎭 Fun interactive commands\n\n<i>More details coming soon!</i>",
+                "action_whatIsMyBalance": "💰 <b>What Is My Balance</b>\n\n[PLACEHOLDER] Your current balance information will be displayed here.\n\n<i>Balance tracking feature coming soon!</i>",
+                "action_showLastactions": "📋 <b>Show Last Actions</b>\n\n[PLACEHOLDER] Your recent actions and activity history will be shown here.\n\n<i>Action history feature coming soon!</i>"
+            }
+            
+            # Get response text
+            response_text = responses.get(callback_data, "❓ Unknown action")
+            
+            # Answer the callback query and post message into chat
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Answer callback to remove loading state
+                await client.post(
+                    f"{self.telegram_api_base}/answerCallbackQuery",
+                    json={
+                        "callback_query_id": callback_query_id,
+                        "text": "Posted to chat!",
+                        "show_alert": False
+                    }
+                )
+                
+                # Post the answer as a new message in the chat
+                await client.post(
+                    f"{self.telegram_api_base}/sendMessage",
+                    json={
+                        "chat_id": chat_id,
+                        "text": response_text,
+                        "parse_mode": "HTML"
+                    }
+                )
+                
+                return True
+                
+        except Exception as e:
+            print(f"Failed to handle callback query: {e}")
+            # Still answer the callback to remove loading state
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    await client.post(
+                        f"{self.telegram_api_base}/answerCallbackQuery",
+                        json={
+                            "callback_query_id": callback_query_id,
+                            "text": "Error occurred",
+                            "show_alert": True
+                        }
+                    )
+            except:
+                pass
+            return False
