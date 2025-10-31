@@ -275,13 +275,15 @@ async def telegram_webhook(request: Request):
             message = data["message"]
             chat_id = str(message["chat"]["id"])
             text = message.get("text", "")
-            username = message.get("from", {}).get("username")
+            user = message.get("from", {})
+            username = user.get("username")
+            language_code = user.get("language_code")  # Get user's Telegram language
             
             # Handle commands
             if text.startswith("/"):
                 command = text.split()[0] if text.split() else text
                 if bot_commands:
-                    success = await bot_commands.handle_command(chat_id, command, username)
+                    success = await bot_commands.handle_command(chat_id, command, username, language_code)
                 else:
                     logger.error("Bot commands not initialized")
                     return {"status": "error", "message": "Bot commands not available"}

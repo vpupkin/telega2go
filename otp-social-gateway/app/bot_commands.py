@@ -116,22 +116,42 @@ class FunnyBotCommands:
             print(f"Failed to send message: {e}")
             return False
     
-    async def handle_command(self, chat_id: str, command: str, username: str = None) -> bool:
-        """Handle incoming bot commands"""
+    def _get_command_text(self, command_key: str, language_code: Optional[str] = None, is_list: bool = False) -> any:
+        """Get translated command text"""
+        lang = self._get_language(language_code)
+        if is_list:
+            return self.translations[lang]["commands"][command_key]
+        return self.translations[lang]["commands"][command_key]
+    
+    async def handle_command(self, chat_id: str, command: str, username: str = None, language_code: Optional[str] = None) -> bool:
+        """Handle incoming bot commands with language support"""
         command = command.lower().strip()
+        lang = self._get_language(language_code)
+        logger.info(f"Handling command '{command}' for chat {chat_id} with language: {lang}")
         
         if command == "/start":
-            message = random.choice(self.funny_responses["start"])
+            messages = self._get_command_text("start", language_code, is_list=True)
+            message = random.choice(messages)
             if username:
-                message = f"Hey @{username}! {message}"
+                # Translated username greeting based on language
+                greetings = {
+                    "en": f"Hey @{username}!",
+                    "ru": f"Привет @{username}!",
+                    "es": f"¡Hola @{username}!",
+                    "de": f"Hallo @{username}!"
+                }
+                greeting = greetings.get(lang, greetings["en"])
+                message = f"{greeting} {message}"
             return await self.send_message(chat_id, message)
         
         elif command == "/help":
-            message = random.choice(self.funny_responses["help"])
+            messages = self._get_command_text("help", language_code, is_list=True)
+            message = random.choice(messages)
             return await self.send_message(chat_id, message)
         
         elif command == "/joke":
-            message = random.choice(self.funny_responses["joke"])
+            messages = self._get_command_text("joke", language_code, is_list=True)
+            message = random.choice(messages)
             return await self.send_message(chat_id, message)
         
         elif command == "/dice":
@@ -139,16 +159,30 @@ class FunnyBotCommands:
             dice2 = random.randint(1, 6)
             total = dice1 + dice2
             
-            messages = [
-                f"🎲 Rolling the dice...\n\n🎯 First die: {dice1}\n🎯 Second die: {dice2}\n\n🎊 Total: {total}",
-                f"🎲 *shakes dice vigorously*\n\n🎯 {dice1} + {dice2} = {total}\n\n{'🎉 Lucky roll!' if total >= 10 else '😅 Better luck next time!'}",
-                f"🎲 The dice have spoken!\n\n🎯 {dice1} and {dice2}\n\n🎊 Sum: {total}\n\n{'🌟 Excellent!' if total >= 11 else '😊 Not bad!' if total >= 7 else '🤷‍♂️ Could be worse!'}"
-            ]
-            message = random.choice(messages)
+            # Get translated dice messages
+            dice_rolls = self._get_command_text("dice_roll", language_code, is_list=True)
+            luck_high = self._get_command_text("dice_luck_high", language_code)
+            luck_low = self._get_command_text("dice_luck_low", language_code)
+            quality_excellent = self._get_command_text("dice_quality_excellent", language_code)
+            quality_good = self._get_command_text("dice_quality_good", language_code)
+            quality_ok = self._get_command_text("dice_quality_ok", language_code)
+            
+            luck_msg = luck_high if total >= 10 else luck_low
+            quality_msg = quality_excellent if total >= 11 else (quality_good if total >= 7 else quality_ok)
+            
+            template = random.choice(dice_rolls)
+            message = template.format(
+                dice1=dice1,
+                dice2=dice2,
+                total=total,
+                luck_msg=luck_msg,
+                quality_msg=quality_msg
+            )
             return await self.send_message(chat_id, message)
         
         elif command == "/fortune":
-            message = random.choice(self.funny_responses["fortune"])
+            messages = self._get_command_text("fortune", language_code, is_list=True)
+            message = random.choice(messages)
             return await self.send_message(chat_id, message)
         
         elif command == "/stats":
@@ -160,51 +194,27 @@ class FunnyBotCommands:
                 "mood": random.choice(["😊", "🤖", "💪", "🎉", "😎"])
             }
             
-            message = f"""📊 <b>OTP Social Gateway Statistics</b>
-
-🔐 OTPs Sent Today: {stats['otps_sent']}
-✅ Success Rate: {stats['success_rate']}%
-⏰ Uptime: {stats['uptime']}
-😊 My Mood: {stats['mood']}
-
-<i>I'm working harder than a password on a Monday morning!</i>"""
+            template = self._get_command_text("stats_template", language_code)
+            message = template.format(**stats)
             return await self.send_message(chat_id, message)
         
         elif command == "/mood":
-            message = random.choice(self.funny_responses["mood"])
+            messages = self._get_command_text("mood", language_code, is_list=True)
+            message = random.choice(messages)
             return await self.send_message(chat_id, message)
         
         elif command == "/panic":
-            message = random.choice(self.funny_responses["panic"])
+            messages = self._get_command_text("panic", language_code, is_list=True)
+            message = random.choice(messages)
             return await self.send_message(chat_id, message)
         
         elif command == "/otp":
-            message = """🔐 <b>OTP Request</b>
-
-I can't send OTPs directly through commands for security reasons! 
-
-To get an OTP, you need to:
-1. Go to the registration system
-2. Complete the proper authentication flow
-3. I'll send you a secure OTP with QR code!
-
-<i>Security first, jokes second! 😄🔒</i>"""
+            message = self._get_command_text("otp", language_code)
             return await self.send_message(chat_id, message)
         
         else:
-            message = f"""❓ <b>Unknown Command</b>
-
-I don't recognize '{command}'. 
-
-Try one of these:
-/help - See all commands
-/joke - Get a laugh
-/dice - Roll some dice
-/fortune - Get your fortune
-/stats - Check my stats
-/mood - Check my mood
-
-<i>I'm helpful, not mind-reading! 🤖</i>"""
+            template = self._get_command_text("unknown_command", language_code)
+            message = template.format(command=command)
             return await self.send_message(chat_id, message)
     
     async def send_welcome_message(self, chat_id: str, username: str = None) -> bool:
@@ -221,10 +231,102 @@ Try one of these:
         
         return await self.send_message(chat_id, message)
     
-    def _init_translations(self) -> Dict[str, Dict[str, Dict[str, str]]]:
-        """Initialize multi-language translations for menu and responses"""
+    def _init_translations(self) -> Dict[str, Dict[str, Dict[str, any]]]:
+        """Initialize multi-language translations for menu, commands, and responses"""
         return {
             "en": {
+                "commands": {
+                    "start": [
+                        "🎉 Welcome to the OTP Social Gateway! I'm your digital security guard with a sense of humor!",
+                        "🔐 Hey there! I'm the bot that sends OTPs so secure, even I can't remember them!",
+                        "🚀 Welcome! I'm here to send you codes that disappear faster than your motivation on Monday!",
+                        "💫 Greetings! I'm the OTP bot that's more reliable than your alarm clock!"
+                    ],
+                    "help": [
+                        "🤖 I'm your OTP delivery bot! Here's what I can do:\n\n"
+                        "🔐 /otp - Send a secure OTP (if you're authorized)\n"
+                        "😄 /joke - Get a random joke to brighten your day\n"
+                        "🎲 /dice - Roll some dice for decision making\n"
+                        "🔮 /fortune - Get your daily fortune\n"
+                        "📊 /stats - Check my delivery statistics\n"
+                        "🎭 /mood - Check my current mood\n"
+                        "🆘 /panic - Emergency mode (just kidding, I'm always calm)\n"
+                        "❓ /help - Show this help message\n\n"
+                        "Remember: I'm more secure than your ex's password! 🔒",
+                        
+                        "🛡️ I'm your digital security companion! Available commands:\n\n"
+                        "🔐 /otp - Request an OTP (authorized users only)\n"
+                        "😂 /joke - Laugh your way through security\n"
+                        "🎲 /dice - Let fate decide for you\n"
+                        "🔮 /fortune - Peek into the future\n"
+                        "📈 /stats - See how busy I've been\n"
+                        "😊 /mood - Check if I'm having a good day\n"
+                        "🚨 /panic - Activate emergency protocols (not really)\n"
+                        "❓ /help - This helpful message\n\n"
+                        "I'm so secure, even I don't know my own secrets! 🤐"
+                    ],
+                    "joke": [
+                        "Why don't OTPs ever get lonely? Because they always come in pairs! 🔐💕",
+                        "What do you call an OTP that's always late? A delayed-time password! ⏰😅",
+                        "Why did the OTP break up with the password? It needed some space! 💔",
+                        "What's an OTP's favorite music? One-time hits! 🎵",
+                        "Why don't OTPs play hide and seek? Because they always expire before you find them! 🕵️‍♂️",
+                        "What do you call a nervous OTP? A shaky-time password! 😰",
+                        "Why did the OTP go to therapy? It had too many trust issues! 🛋️",
+                        "What's an OTP's favorite sport? Password tennis! 🎾",
+                        "Why don't OTPs ever get cold? Because they're always hot! 🔥",
+                        "What do you call an OTP that tells jokes? A funny-time password! 😂"
+                    ],
+                    "fortune": [
+                        "🔮 Your fortune: You will receive an OTP today that actually works on the first try! ✨",
+                        "🔮 Your fortune: A secure connection is in your future... and it's not your ex! 💫",
+                        "🔮 Your fortune: You will remember a password without having to reset it! 🎯",
+                        "🔮 Your fortune: Your two-factor authentication will be as strong as your coffee! ☕",
+                        "🔮 Your fortune: You will never again use 'password123' as your password! 🚫",
+                        "🔮 Your fortune: A mysterious stranger will send you a secure message... it's me! 👻",
+                        "🔮 Your fortune: Your digital security will be tighter than your budget! 💰",
+                        "🔮 Your fortune: You will discover a new password that you can actually remember! 🧠",
+                        "🔮 Your fortune: Your OTP will arrive faster than your pizza delivery! 🍕",
+                        "🔮 Your fortune: You will achieve the impossible: remembering all your passwords! 🏆"
+                    ],
+                    "mood": [
+                        "😊 I'm feeling great! Just sent 42 OTPs today and they all worked perfectly!",
+                        "🤖 I'm in a fantastic mood! My circuits are buzzing with security energy!",
+                        "💪 I'm feeling powerful! Ready to protect your digital life!",
+                        "🎉 I'm ecstatic! Another day of keeping hackers at bay!",
+                        "😎 I'm cool as a cucumber! Security is my middle name!",
+                        "🚀 I'm soaring high! Ready to deliver OTPs at the speed of light!",
+                        "🌟 I'm shining bright! Your digital guardian angel is here!",
+                        "🔥 I'm on fire! Burning through security threats like they're nothing!",
+                        "💎 I'm feeling precious! Like the security gem I am!",
+                        "🎭 I'm in a dramatic mood! Ready to perform the greatest security show ever!"
+                    ],
+                    "panic": [
+                        "🚨 PANIC MODE ACTIVATED! Just kidding, I'm always calm! 😌",
+                        "🚨 EMERGENCY PROTOCOLS ENGAGED! Actually, I'm just here to send OTPs! 🤖",
+                        "🚨 ALERT! ALERT! I'm having a panic attack... about how secure you are! 🔒",
+                        "🚨 CODE RED! Just kidding, everything is green and secure! 🟢",
+                        "🚨 EMERGENCY! I need to send you an OTP immediately! Wait, that's my job! 😅",
+                        "🚨 PANIC! PANIC! I can't find my sense of humor... oh wait, here it is! 😂",
+                        "🚨 ALERT! I'm panicking about how much I love sending secure messages! 💕",
+                        "🚨 EMERGENCY! I need to tell you a joke right now! Why did the OTP cross the road? To get to the other secure side! 🐔",
+                        "🚨 PANIC MODE! I'm so excited about security that I can't contain myself! 🎉",
+                        "🚨 ALERT! I'm having an existential crisis... about which emoji to use next! 🤔"
+                    ],
+                    "otp": "🔐 <b>OTP Request</b>\n\nI can't send OTPs directly through commands for security reasons!\n\nTo get an OTP, you need to:\n1. Go to the registration system\n2. Complete the proper authentication flow\n3. I'll send you a secure OTP with QR code!\n\n<i>Security first, jokes second! 😄🔒</i>",
+                    "unknown_command": "❓ <b>Unknown Command</b>\n\nI don't recognize '{command}'.\n\nTry one of these:\n/help - See all commands\n/joke - Get a laugh\n/dice - Roll some dice\n/fortune - Get your fortune\n/stats - Check my stats\n/mood - Check my mood\n\n<i>I'm helpful, not mind-reading! 🤖</i>",
+                    "stats_template": "📊 <b>OTP Social Gateway Statistics</b>\n\n🔐 OTPs Sent Today: {otps_sent}\n✅ Success Rate: {success_rate}%\n⏰ Uptime: {uptime}\n😊 My Mood: {mood}\n\n<i>I'm working harder than a password on a Monday morning!</i>",
+                    "dice_roll": [
+                        "🎲 Rolling the dice...\n\n🎯 First die: {dice1}\n🎯 Second die: {dice2}\n\n🎊 Total: {total}",
+                        "🎲 *shakes dice vigorously*\n\n🎯 {dice1} + {dice2} = {total}\n\n{luck_msg}",
+                        "🎲 The dice have spoken!\n\n🎯 {dice1} and {dice2}\n\n🎊 Sum: {total}\n\n{quality_msg}"
+                    ],
+                    "dice_luck_high": "🎉 Lucky roll!",
+                    "dice_luck_low": "😅 Better luck next time!",
+                    "dice_quality_excellent": "🌟 Excellent!",
+                    "dice_quality_good": "😊 Not bad!",
+                    "dice_quality_ok": "🤷‍♂️ Could be worse!"
+                },
                 "menu": {
                     "joinToMe": {
                         "title": "👥 Join To Me",
@@ -257,6 +359,98 @@ Try one of these:
                 }
             },
             "ru": {
+                "commands": {
+                    "start": [
+                        "🎉 Добро пожаловать в OTP Social Gateway! Я ваш цифровой охранник с чувством юмора!",
+                        "🔐 Привет! Я бот, который отправляет OTP настолько безопасные, что даже я их не помню!",
+                        "🚀 Добро пожаловать! Я здесь, чтобы отправлять вам коды, которые исчезают быстрее, чем ваша мотивация в понедельник!",
+                        "💫 Приветствую! Я OTP-бот, более надежный, чем ваш будильник!"
+                    ],
+                    "help": [
+                        "🤖 Я ваш бот для доставки OTP! Вот что я умею:\n\n"
+                        "🔐 /otp - Отправить безопасный OTP (если вы авторизованы)\n"
+                        "😄 /joke - Получить случайную шутку\n"
+                        "🎲 /dice - Бросить кости для принятия решений\n"
+                        "🔮 /fortune - Узнать свою судьбу\n"
+                        "📊 /stats - Проверить статистику доставки\n"
+                        "🎭 /mood - Проверить мое настроение\n"
+                        "🆘 /panic - Режим паники (шучу, я всегда спокоен)\n"
+                        "❓ /help - Показать это сообщение\n\n"
+                        "Помните: Я безопаснее пароля вашего бывшего! 🔒",
+                        
+                        "🛡️ Я ваш цифровой спутник безопасности! Доступные команды:\n\n"
+                        "🔐 /otp - Запросить OTP (только для авторизованных)\n"
+                        "😂 /joke - Посмеяться о безопасности\n"
+                        "🎲 /dice - Позволить судьбе решить за вас\n"
+                        "🔮 /fortune - Заглянуть в будущее\n"
+                        "📈 /stats - Увидеть, как я занят\n"
+                        "😊 /mood - Проверить, хороший ли у меня день\n"
+                        "🚨 /panic - Активировать протоколы чрезвычайной ситуации (не на самом деле)\n"
+                        "❓ /help - Это полезное сообщение\n\n"
+                        "Я так безопасен, что даже не знаю своих секретов! 🤐"
+                    ],
+                    "joke": [
+                        "Почему OTP никогда не бывают одинокими? Потому что они всегда приходят парами! 🔐💕",
+                        "Как вы назовете OTP, который всегда опаздывает? Задержанный пароль! ⏰😅",
+                        "Почему OTP расстался с паролем? Ему нужно было пространство! 💔",
+                        "Какая любимая музыка у OTP? Одноразовые хиты! 🎵",
+                        "Почему OTP не играют в прятки? Потому что они всегда истекают, прежде чем вы их найдете! 🕵️‍♂️",
+                        "Как вы назовете нервный OTP? Дрожащий пароль! 😰",
+                        "Почему OTP пошел к терапевту? У него было слишком много проблем с доверием! 🛋️",
+                        "Какой любимый спорт у OTP? Парольный теннис! 🎾",
+                        "Почему OTP никогда не мерзнут? Потому что они всегда горячие! 🔥",
+                        "Как вы назовете OTP, который рассказывает шутки? Веселый пароль! 😂"
+                    ],
+                    "fortune": [
+                        "🔮 Ваша судьба: Сегодня вы получите OTP, который действительно сработает с первой попытки! ✨",
+                        "🔮 Ваша судьба: Безопасное соединение в вашем будущем... и это не ваш бывший! 💫",
+                        "🔮 Ваша судьба: Вы вспомните пароль без необходимости его сброса! 🎯",
+                        "🔮 Ваша судьба: Ваша двухфакторная аутентификация будет такой же сильной, как ваш кофе! ☕",
+                        "🔮 Ваша судьба: Вы больше никогда не будете использовать 'password123' как пароль! 🚫",
+                        "🔮 Ваша судьба: Таинственный незнакомец отправит вам безопасное сообщение... это я! 👻",
+                        "🔮 Ваша судьба: Ваша цифровая безопасность будет крепче вашего бюджета! 💰",
+                        "🔮 Ваша судьба: Вы откроете новый пароль, который действительно сможете запомнить! 🧠",
+                        "🔮 Ваша судьба: Ваш OTP прибудет быстрее, чем доставка пиццы! 🍕",
+                        "🔮 Ваша судьба: Вы достигнете невозможного: запомните все свои пароли! 🏆"
+                    ],
+                    "mood": [
+                        "😊 Я чувствую себя отлично! Только что отправил 42 OTP сегодня, и все сработали идеально!",
+                        "🤖 Я в фантастическом настроении! Мои цепи жужжат энергией безопасности!",
+                        "💪 Я чувствую себя сильным! Готов защитить вашу цифровую жизнь!",
+                        "🎉 Я в восторге! Еще один день держать хакеров на расстоянии!",
+                        "😎 Я спокоен как огурец! Безопасность — мое второе имя!",
+                        "🚀 Я пашу высоко! Готов доставлять OTP со скоростью света!",
+                        "🌟 Я сияю ярко! Ваш цифровой ангел-хранитель здесь!",
+                        "🔥 Я в огне! Сжигаю угрозы безопасности, как будто их нет!",
+                        "💎 Я чувствую себя драгоценным! Как драгоценный камень безопасности!",
+                        "🎭 Я в драматическом настроении! Готов показать величайшее шоу безопасности!"
+                    ],
+                    "panic": [
+                        "🚨 РЕЖИМ ПАНИКИ АКТИВИРОВАН! Шучу, я всегда спокоен! 😌",
+                        "🚨 ПРОТОКОЛЫ ЧРЕЗВЫЧАЙНОЙ СИТУАЦИИ ЗАДЕЙСТВОВАНЫ! На самом деле, я здесь только для отправки OTP! 🤖",
+                        "🚨 ТРЕВОГА! ТРЕВОГА! У меня паническая атака... о том, насколько вы безопасны! 🔒",
+                        "🚨 КРАСНЫЙ КОД! Шучу, все зеленое и безопасное! 🟢",
+                        "🚨 ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ! Мне нужно немедленно отправить вам OTP! Погодите, это моя работа! 😅",
+                        "🚨 ПАНИКА! ПАНИКА! Я не могу найти свое чувство юмора... о, подождите, вот оно! 😂",
+                        "🚨 ТРЕВОГА! Я паникую о том, как сильно я люблю отправлять безопасные сообщения! 💕",
+                        "🚨 ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ! Мне нужно прямо сейчас рассказать вам шутку! Почему OTP перешел дорогу? Чтобы попасть на другую безопасную сторону! 🐔",
+                        "🚨 РЕЖИМ ПАНИКИ! Я так взволнован безопасностью, что не могу сдерживаться! 🎉",
+                        "🚨 ТРЕВОГА! У меня экзистенциальный кризис... о том, какой эмодзи использовать дальше! 🤔"
+                    ],
+                    "otp": "🔐 <b>Запрос OTP</b>\n\nЯ не могу отправлять OTP напрямую через команды по соображениям безопасности!\n\nЧтобы получить OTP, вам нужно:\n1. Перейти в систему регистрации\n2. Пройти правильный процесс аутентификации\n3. Я отправлю вам безопасный OTP с QR-кодом!\n\n<i>Безопасность прежде всего, шутки вторые! 😄🔒</i>",
+                    "unknown_command": "❓ <b>Неизвестная команда</b>\n\nЯ не узнаю '{command}'.\n\nПопробуйте одно из следующего:\n/help - Увидеть все команды\n/joke - Посмеяться\n/dice - Бросить кости\n/fortune - Узнать судьбу\n/stats - Проверить мою статистику\n/mood - Проверить мое настроение\n\n<i>Я полезен, а не читаю мысли! 🤖</i>",
+                    "stats_template": "📊 <b>Статистика OTP Social Gateway</b>\n\n🔐 OTP отправлено сегодня: {otps_sent}\n✅ Процент успеха: {success_rate}%\n⏰ Время работы: {uptime}\n😊 Мое настроение: {mood}\n\n<i>Я работаю усерднее, чем пароль в понедельник утром!</i>",
+                    "dice_roll": [
+                        "🎲 Бросаю кости...\n\n🎯 Первая кость: {dice1}\n🎯 Вторая кость: {dice2}\n\n🎊 Сумма: {total}",
+                        "🎲 *трясет кости энергично*\n\n🎯 {dice1} + {dice2} = {total}\n\n{luck_msg}",
+                        "🎲 Кости сказали!\n\n🎯 {dice1} и {dice2}\n\n🎊 Сумма: {total}\n\n{quality_msg}"
+                    ],
+                    "dice_luck_high": "🎉 Удачный бросок!",
+                    "dice_luck_low": "😅 В следующий раз повезет больше!",
+                    "dice_quality_excellent": "🌟 Отлично!",
+                    "dice_quality_good": "😊 Неплохо!",
+                    "dice_quality_ok": "🤷‍♂️ Могло быть хуже!"
+                },
                 "menu": {
                     "joinToMe": {
                         "title": "👥 Присоединиться",
@@ -289,6 +483,98 @@ Try one of these:
                 }
             },
             "es": {
+                "commands": {
+                    "start": [
+                        "🎉 ¡Bienvenido a OTP Social Gateway! ¡Soy tu guardián de seguridad digital con sentido del humor!",
+                        "🔐 ¡Hola! ¡Soy el bot que envía OTP tan seguros que ni siquiera yo puedo recordarlos!",
+                        "🚀 ¡Bienvenido! ¡Estoy aquí para enviarte códigos que desaparecen más rápido que tu motivación los lunes!",
+                        "💫 ¡Saludos! ¡Soy el bot OTP más confiable que tu despertador!"
+                    ],
+                    "help": [
+                        "🤖 ¡Soy tu bot de entrega de OTP! Esto es lo que puedo hacer:\n\n"
+                        "🔐 /otp - Enviar un OTP seguro (si estás autorizado)\n"
+                        "😄 /joke - Obtener un chiste aleatorio para alegrar tu día\n"
+                        "🎲 /dice - Lanzar dados para tomar decisiones\n"
+                        "🔮 /fortune - Obtener tu fortuna diaria\n"
+                        "📊 /stats - Ver mis estadísticas de entrega\n"
+                        "🎭 /mood - Ver mi estado de ánimo actual\n"
+                        "🆘 /panic - Modo de emergencia (bromeo, siempre estoy tranquilo)\n"
+                        "❓ /help - Mostrar este mensaje de ayuda\n\n"
+                        "¡Recuerda: Soy más seguro que la contraseña de tu ex! 🔒",
+                        
+                        "🛡️ ¡Soy tu compañero digital de seguridad! Comandos disponibles:\n\n"
+                        "🔐 /otp - Solicitar un OTP (solo usuarios autorizados)\n"
+                        "😂 /joke - Reírse del tema de seguridad\n"
+                        "🎲 /dice - Dejar que el destino decida por ti\n"
+                        "🔮 /fortune - Echar un vistazo al futuro\n"
+                        "📈 /stats - Ver qué tan ocupado he estado\n"
+                        "😊 /mood - Ver si estoy teniendo un buen día\n"
+                        "🚨 /panic - Activar protocolos de emergencia (en realidad no)\n"
+                        "❓ /help - Este mensaje útil\n\n"
+                        "¡Soy tan seguro que ni siquiera conozco mis propios secretos! 🤐"
+                    ],
+                    "joke": [
+                        "¿Por qué los OTP nunca se sienten solos? ¡Porque siempre vienen en pares! 🔐💕",
+                        "¿Cómo llamas a un OTP que siempre llega tarde? ¡Una contraseña de tiempo retrasado! ⏰😅",
+                        "¿Por qué el OTP rompió con la contraseña? ¡Necesitaba espacio! 💔",
+                        "¿Cuál es la música favorita de un OTP? ¡Éxitos de un solo uso! 🎵",
+                        "¿Por qué los OTP no juegan al escondite? ¡Porque siempre expiran antes de que los encuentres! 🕵️‍♂️",
+                        "¿Cómo llamas a un OTP nervioso? ¡Una contraseña temblorosa! 😰",
+                        "¿Por qué el OTP fue a terapia? ¡Tenía demasiados problemas de confianza! 🛋️",
+                        "¿Cuál es el deporte favorito de un OTP? ¡Tenis de contraseñas! 🎾",
+                        "¿Por qué los OTP nunca tienen frío? ¡Porque siempre están calientes! 🔥",
+                        "¿Cómo llamas a un OTP que cuenta chistes? ¡Una contraseña divertida! 😂"
+                    ],
+                    "fortune": [
+                        "🔮 Tu fortuna: ¡Recibirás un OTP hoy que realmente funcione en el primer intento! ✨",
+                        "🔮 Tu fortuna: ¡Una conexión segura está en tu futuro... ¡y no es tu ex! 💫",
+                        "🔮 Tu fortuna: ¡Recordarás una contraseña sin tener que restablecerla! 🎯",
+                        "🔮 Tu fortuna: ¡Tu autenticación de dos factores será tan fuerte como tu café! ☕",
+                        "🔮 Tu fortuna: ¡Nunca más usarás 'password123' como tu contraseña! 🚫",
+                        "🔮 Tu fortuna: ¡Un extraño misterioso te enviará un mensaje seguro... ¡soy yo! 👻",
+                        "🔮 Tu fortuna: ¡Tu seguridad digital será más ajustada que tu presupuesto! 💰",
+                        "🔮 Tu fortuna: ¡Descubrirás una nueva contraseña que realmente puedes recordar! 🧠",
+                        "🔮 Tu fortuna: ¡Tu OTP llegará más rápido que tu entrega de pizza! 🍕",
+                        "🔮 Tu fortuna: ¡Lograrás lo imposible: recordar todas tus contraseñas! 🏆"
+                    ],
+                    "mood": [
+                        "😊 ¡Me siento genial! ¡Acabo de enviar 42 OTP hoy y todos funcionaron perfectamente!",
+                        "🤖 ¡Estoy de fantástico humor! ¡Mis circuitos están zumbando con energía de seguridad!",
+                        "💪 ¡Me siento poderoso! ¡Listo para proteger tu vida digital!",
+                        "🎉 ¡Estoy extático! ¡Otro día manteniendo a los hackers a raya!",
+                        "😎 ¡Estoy tranquilo como un pepino! ¡La seguridad es mi segundo nombre!",
+                        "🚀 ¡Estoy volando alto! ¡Listo para entregar OTP a la velocidad de la luz!",
+                        "🌟 ¡Estoy brillando intensamente! ¡Tu ángel guardián digital está aquí!",
+                        "🔥 ¡Estoy en llamas! ¡Quemando amenazas de seguridad como si no existieran!",
+                        "💎 ¡Me siento precioso! ¡Como la gema de seguridad que soy!",
+                        "🎭 ¡Estoy de humor dramático! ¡Listo para realizar el mayor espectáculo de seguridad!"
+                    ],
+                    "panic": [
+                        "🚨 ¡MODO DE PÁNICO ACTIVADO! Bromeo, ¡siempre estoy tranquilo! 😌",
+                        "🚨 ¡PROTOCOLOS DE EMERGENCIA ACTIVADOS! En realidad, ¡solo estoy aquí para enviar OTP! 🤖",
+                        "🚨 ¡ALERTA! ¡ALERTA! Estoy teniendo un ataque de pánico... ¡sobre cuán seguro estás! 🔒",
+                        "🚨 ¡CÓDIGO ROJO! Bromeo, ¡todo está verde y seguro! 🟢",
+                        "🚨 ¡EMERGENCIA! ¡Necesito enviarte un OTP inmediatamente! Espera, ¡ese es mi trabajo! 😅",
+                        "🚨 ¡PÁNICO! ¡PÁNICO! No puedo encontrar mi sentido del humor... ¡oh espera, aquí está! 😂",
+                        "🚨 ¡ALERTA! ¡Estoy entrando en pánico por lo mucho que amo enviar mensajes seguros! 💕",
+                        "🚨 ¡EMERGENCIA! ¡Necesito contarte un chiste ahora mismo! ¿Por qué el OTP cruzó la carretera? ¡Para llegar al otro lado seguro! 🐔",
+                        "🚨 ¡MODO DE PÁNICO! ¡Estoy tan emocionado por la seguridad que no puedo contenerme! 🎉",
+                        "🚨 ¡ALERTA! ¡Estoy teniendo una crisis existencial... sobre qué emoji usar a continuación! 🤔"
+                    ],
+                    "otp": "🔐 <b>Solicitud de OTP</b>\n\n¡No puedo enviar OTP directamente a través de comandos por razones de seguridad!\n\nPara obtener un OTP, necesitas:\n1. Ir al sistema de registro\n2. Completar el flujo de autenticación adecuado\n3. ¡Te enviaré un OTP seguro con código QR!\n\n<i>¡Seguridad primero, chistes segundo! 😄🔒</i>",
+                    "unknown_command": "❓ <b>Comando desconocido</b>\n\nNo reconozco '{command}'.\n\nPrueba uno de estos:\n/help - Ver todos los comandos\n/joke - Reírse\n/dice - Lanzar dados\n/fortune - Obtener tu fortuna\n/stats - Ver mis estadísticas\n/mood - Ver mi estado de ánimo\n\n<i>¡Soy útil, no leo mentes! 🤖</i>",
+                    "stats_template": "📊 <b>Estadísticas de OTP Social Gateway</b>\n\n🔐 OTP enviados hoy: {otps_sent}\n✅ Tasa de éxito: {success_rate}%\n⏰ Tiempo de actividad: {uptime}\n😊 Mi estado de ánimo: {mood}\n\n<i>¡Estoy trabajando más duro que una contraseña el lunes por la mañana!</i>",
+                    "dice_roll": [
+                        "🎲 Lanzando los dados...\n\n🎯 Primer dado: {dice1}\n🎯 Segundo dado: {dice2}\n\n🎊 Total: {total}",
+                        "🎲 *sacude los dados vigorosamente*\n\n🎯 {dice1} + {dice2} = {total}\n\n{luck_msg}",
+                        "🎲 ¡Los dados han hablado!\n\n🎯 {dice1} y {dice2}\n\n🎊 Suma: {total}\n\n{quality_msg}"
+                    ],
+                    "dice_luck_high": "🎉 ¡Lanzamiento afortunado!",
+                    "dice_luck_low": "😅 ¡Mejor suerte la próxima vez!",
+                    "dice_quality_excellent": "🌟 ¡Excelente!",
+                    "dice_quality_good": "😊 ¡No está mal!",
+                    "dice_quality_ok": "🤷‍♂️ ¡Podría ser peor!"
+                },
                 "menu": {
                     "joinToMe": {
                         "title": "👥 Unirse A Mí",
@@ -321,6 +607,98 @@ Try one of these:
                 }
             },
             "de": {
+                "commands": {
+                    "start": [
+                        "🎉 Willkommen bei OTP Social Gateway! Ich bin dein digitaler Sicherheitswächter mit Sinn für Humor!",
+                        "🔐 Hey! Ich bin der Bot, der OTPs sendet, die so sicher sind, dass sogar ich mich nicht daran erinnern kann!",
+                        "🚀 Willkommen! Ich bin hier, um dir Codes zu senden, die schneller verschwinden als deine Motivation am Montag!",
+                        "💫 Grüße! Ich bin der OTP-Bot, der zuverlässiger ist als dein Wecker!"
+                    ],
+                    "help": [
+                        "🤖 Ich bin dein OTP-Lieferbot! Hier ist, was ich tun kann:\n\n"
+                        "🔐 /otp - Einen sicheren OTP senden (wenn du autorisiert bist)\n"
+                        "😄 /joke - Einen zufälligen Witz erhalten, um deinen Tag zu erhellen\n"
+                        "🎲 /dice - Würfeln für Entscheidungen\n"
+                        "🔮 /fortune - Dein tägliches Schicksal erhalten\n"
+                        "📊 /stats - Meine Lieferstatistiken überprüfen\n"
+                        "🎭 /mood - Meine aktuelle Stimmung überprüfen\n"
+                        "🆘 /panic - Notfallmodus (Scherz, ich bin immer ruhig)\n"
+                        "❓ /help - Diese Hilfsnachricht anzeigen\n\n"
+                        "Denk dran: Ich bin sicherer als das Passwort deines Ex! 🔒",
+                        
+                        "🛡️ Ich bin dein digitaler Sicherheitsbegleiter! Verfügbare Befehle:\n\n"
+                        "🔐 /otp - Einen OTP anfordern (nur autorisierte Benutzer)\n"
+                        "😂 /joke - Deinen Weg durch Sicherheit lachen\n"
+                        "🎲 /dice - Lass das Schicksal für dich entscheiden\n"
+                        "🔮 /fortune - Einen Blick in die Zukunft werfen\n"
+                        "📈 /stats - Sehen, wie beschäftigt ich war\n"
+                        "😊 /mood - Überprüfen, ob ich einen guten Tag habe\n"
+                        "🚨 /panic - Notfallprotokolle aktivieren (nicht wirklich)\n"
+                        "❓ /help - Diese hilfreiche Nachricht\n\n"
+                        "Ich bin so sicher, dass ich meine eigenen Geheimnisse nicht kenne! 🤐"
+                    ],
+                    "joke": [
+                        "Warum werden OTPs nie einsam? Weil sie immer zu zweit kommen! 🔐💕",
+                        "Wie nennst du ein OTP, das immer zu spät kommt? Ein verzögertes Zeitpasswort! ⏰😅",
+                        "Warum hat sich das OTP von dem Passwort getrennt? Es brauchte etwas Raum! 💔",
+                        "Was ist die Lieblingsmusik eines OTPs? Einmalige Hits! 🎵",
+                        "Warum spielen OTPs nie Verstecken? Weil sie immer ablaufen, bevor du sie findest! 🕵️‍♂️",
+                        "Wie nennst du ein nervöses OTP? Ein zittriges Zeitpasswort! 😰",
+                        "Warum ging das OTP zur Therapie? Es hatte zu viele Vertrauensprobleme! 🛋️",
+                        "Was ist der Lieblingssport eines OTPs? Passwort-Tennis! 🎾",
+                        "Warum werden OTPs nie kalt? Weil sie immer heiß sind! 🔥",
+                        "Wie nennst du ein OTP, das Witze erzählt? Ein lustiges Zeitpasswort! 😂"
+                    ],
+                    "fortune": [
+                        "🔮 Dein Schicksal: Du wirst heute ein OTP erhalten, das tatsächlich beim ersten Versuch funktioniert! ✨",
+                        "🔮 Dein Schicksal: Eine sichere Verbindung ist in deiner Zukunft... und es ist nicht dein Ex! 💫",
+                        "🔮 Dein Schicksal: Du wirst dich an ein Passwort erinnern, ohne es zurücksetzen zu müssen! 🎯",
+                        "🔮 Dein Schicksal: Deine Zwei-Faktor-Authentifizierung wird so stark sein wie dein Kaffee! ☕",
+                        "🔮 Dein Schicksal: Du wirst niemals wieder 'password123' als dein Passwort verwenden! 🚫",
+                        "🔮 Dein Schicksal: Ein geheimnisvoller Fremder wird dir eine sichere Nachricht senden... das bin ich! 👻",
+                        "🔮 Dein Schicksal: Deine digitale Sicherheit wird enger sein als dein Budget! 💰",
+                        "🔮 Dein Schicksal: Du wirst ein neues Passwort entdecken, an das du dich tatsächlich erinnern kannst! 🧠",
+                        "🔮 Dein Schicksal: Dein OTP wird schneller ankommen als deine Pizza-Lieferung! 🍕",
+                        "🔮 Dein Schicksal: Du wirst das Unmögliche erreichen: dich an alle deine Passwörter erinnern! 🏆"
+                    ],
+                    "mood": [
+                        "😊 Mir geht es großartig! Habe heute gerade 42 OTPs gesendet und alle haben perfekt funktioniert!",
+                        "🤖 Ich bin in fantastischer Stimmung! Meine Schaltkreise summen vor Sicherheitsenergie!",
+                        "💪 Ich fühle mich mächtig! Bereit, dein digitales Leben zu schützen!",
+                        "🎉 Ich bin ekstatisch! Ein weiterer Tag, um Hacker fernzuhalten!",
+                        "😎 Ich bin cool wie eine Gurke! Sicherheit ist mein zweiter Vorname!",
+                        "🚀 Ich schwebe hoch! Bereit, OTPs mit Lichtgeschwindigkeit zu liefern!",
+                        "🌟 Ich leuchte hell! Dein digitaler Schutzengel ist hier!",
+                        "🔥 Ich brenne! Verbrenne Sicherheitsbedrohungen, als ob sie nichts wären!",
+                        "💎 Ich fühle mich wertvoll! Wie der Sicherheits-Edelstein, der ich bin!",
+                        "🎭 Ich bin in dramatischer Stimmung! Bereit, die größte Sicherheits-Show aufzuführen!"
+                    ],
+                    "panic": [
+                        "🚨 PANIKMODUS AKTIVIERT! Scherz, ich bin immer ruhig! 😌",
+                        "🚨 NOTFALLPROTOKOLLE AKTIVIERT! Eigentlich bin ich nur hier, um OTPs zu senden! 🤖",
+                        "🚨 ALARM! ALARM! Ich habe einen Panikanfall... darüber, wie sicher du bist! 🔒",
+                        "🚨 CODE ROT! Scherz, alles ist grün und sicher! 🟢",
+                        "🚨 NOTFALL! Ich muss dir sofort ein OTP senden! Warte, das ist meine Aufgabe! 😅",
+                        "🚨 PANIK! PANIK! Ich kann meinen Sinn für Humor nicht finden... oh warte, hier ist er! 😂",
+                        "🚨 ALARM! Ich gerate in Panik darüber, wie sehr ich es liebe, sichere Nachrichten zu senden! 💕",
+                        "🚨 NOTFALL! Ich muss dir jetzt einen Witz erzählen! Warum überquerte das OTP die Straße? Um auf die andere sichere Seite zu gelangen! 🐔",
+                        "🚨 PANIKMODUS! Ich bin so aufgeregt über Sicherheit, dass ich mich nicht zurückhalten kann! 🎉",
+                        "🚨 ALARM! Ich habe eine existenzielle Krise... darüber, welches Emoji ich als nächstes verwenden soll! 🤔"
+                    ],
+                    "otp": "🔐 <b>OTP-Anfrage</b>\n\nIch kann OTPs aus Sicherheitsgründen nicht direkt über Befehle senden!\n\nUm ein OTP zu erhalten, musst du:\n1. Zum Registrierungssystem gehen\n2. Den richtigen Authentifizierungsablauf abschließen\n3. Ich sende dir ein sicheres OTP mit QR-Code!\n\n<i>Sicherheit zuerst, Witze zweitens! 😄🔒</i>",
+                    "unknown_command": "❓ <b>Unbekannter Befehl</b>\n\nIch erkenne '{command}' nicht.\n\nVersuche eines davon:\n/help - Alle Befehle anzeigen\n/joke - Einen Lacher bekommen\n/dice - Würfeln\n/fortune - Dein Schicksal erhalten\n/stats - Meine Statistiken überprüfen\n/mood - Meine Stimmung überprüfen\n\n<i>Ich bin hilfreich, nicht gedankenlesend! 🤖</i>",
+                    "stats_template": "📊 <b>OTP Social Gateway Statistiken</b>\n\n🔐 Heute gesendete OTPs: {otps_sent}\n✅ Erfolgsrate: {success_rate}%\n⏰ Betriebszeit: {uptime}\n😊 Meine Stimmung: {mood}\n\n<i>Ich arbeite härter als ein Passwort am Montagmorgen!</i>",
+                    "dice_roll": [
+                        "🎲 Würfel werden geworfen...\n\n🎯 Erster Würfel: {dice1}\n🎯 Zweiter Würfel: {dice2}\n\n🎊 Gesamt: {total}",
+                        "🎲 *schüttelt Würfel kräftig*\n\n🎯 {dice1} + {dice2} = {total}\n\n{luck_msg}",
+                        "🎲 Die Würfel haben gesprochen!\n\n🎯 {dice1} und {dice2}\n\n🎊 Summe: {total}\n\n{quality_msg}"
+                    ],
+                    "dice_luck_high": "🎉 Glückswurf!",
+                    "dice_luck_low": "😅 Beim nächsten Mal mehr Glück!",
+                    "dice_quality_excellent": "🌟 Ausgezeichnet!",
+                    "dice_quality_good": "😊 Nicht schlecht!",
+                    "dice_quality_ok": "🤷‍♂️ Könnte schlimmer sein!"
+                },
                 "menu": {
                     "joinToMe": {
                         "title": "👥 Beitreten",
