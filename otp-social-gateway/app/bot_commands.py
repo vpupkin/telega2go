@@ -3,7 +3,7 @@ import random
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Dict, List, Optional
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -14,6 +14,9 @@ class FunnyBotCommands:
     def __init__(self, bot_token: str):
         self.bot_token = bot_token
         self.telegram_api_base = f"https://api.telegram.org/bot{bot_token}"
+        
+        # Multi-language translations
+        self.translations = self._init_translations()
         
         # Funny responses and jokes
         self.funny_responses = {
@@ -218,61 +221,209 @@ Try one of these:
         
         return await self.send_message(chat_id, message)
     
-    async def handle_inline_query(self, inline_query_id: str, query: str, user_id: str) -> bool:
+    def _init_translations(self) -> Dict[str, Dict[str, Dict[str, str]]]:
+        """Initialize multi-language translations for menu and responses"""
+        return {
+            "en": {
+                "menu": {
+                    "joinToMe": {
+                        "title": "👥 Join To Me",
+                        "description": "Connect and join the community",
+                        "button": "👥 Join To Me",
+                        "initial": "👥 <b>Join To Me</b>\n\nSelect an action:",
+                        "response": "👥 <b>Join To Me</b>\n\n[PLACEHOLDER] This feature will allow you to join the community or connect with other users.\n\n<i>Coming soon with full implementation!</i>"
+                    },
+                    "explainWhatIsThis": {
+                        "title": "📖 Explain What Is This",
+                        "description": "Learn about Telega2Go and its features",
+                        "button": "📖 Explain",
+                        "initial": "📖 <b>Explain What Is This</b>\n\nSelect an action:",
+                        "response": "📖 <b>Explain What Is This</b>\n\n[PLACEHOLDER] Telega2Go is a secure OTP delivery system with Telegram integration. This bot helps you:\n\n🔐 Secure OTP delivery\n📱 QR code verification\n🔒 Self-destructing messages\n🎭 Fun interactive commands\n\n<i>More details coming soon!</i>"
+                    },
+                    "whatIsMyBalance": {
+                        "title": "💰 What Is My Balance",
+                        "description": "Check your account balance",
+                        "button": "💰 Check Balance",
+                        "initial": "💰 <b>What Is My Balance</b>\n\nSelect an action:",
+                        "response": "💰 <b>What Is My Balance</b>\n\n[PLACEHOLDER] Your current balance information will be displayed here.\n\n<i>Balance tracking feature coming soon!</i>"
+                    },
+                    "showLastactions": {
+                        "title": "📋 Show Last Actions",
+                        "description": "View your recent activity history",
+                        "button": "📋 Show Actions",
+                        "initial": "📋 <b>Show Last Actions</b>\n\nSelect an action:",
+                        "response": "📋 <b>Show Last Actions</b>\n\n[PLACEHOLDER] Your recent actions and activity history will be shown here.\n\n<i>Action history feature coming soon!</i>"
+                    }
+                }
+            },
+            "ru": {
+                "menu": {
+                    "joinToMe": {
+                        "title": "👥 Присоединиться",
+                        "description": "Подключиться и присоединиться к сообществу",
+                        "button": "👥 Присоединиться",
+                        "initial": "👥 <b>Присоединиться</b>\n\nВыберите действие:",
+                        "response": "👥 <b>Присоединиться</b>\n\n[ЗАГЛУШКА] Эта функция позволит вам присоединиться к сообществу или подключиться к другим пользователям.\n\n<i>Скоро будет полностью реализовано!</i>"
+                    },
+                    "explainWhatIsThis": {
+                        "title": "📖 Что Это",
+                        "description": "Узнайте о Telega2Go и его функциях",
+                        "button": "📖 Объяснить",
+                        "initial": "📖 <b>Что Это</b>\n\nВыберите действие:",
+                        "response": "📖 <b>Что Это</b>\n\n[ЗАГЛУШКА] Telega2Go — это безопасная система доставки OTP с интеграцией Telegram. Этот бот помогает вам:\n\n🔐 Безопасная доставка OTP\n📱 Проверка QR-кода\n🔒 Самоудаляющиеся сообщения\n🎭 Веселые интерактивные команды\n\n<i>Больше деталей скоро!</i>"
+                    },
+                    "whatIsMyBalance": {
+                        "title": "💰 Мой Баланс",
+                        "description": "Проверить баланс счета",
+                        "button": "💰 Проверить Баланс",
+                        "initial": "💰 <b>Мой Баланс</b>\n\nВыберите действие:",
+                        "response": "💰 <b>Мой Баланс</b>\n\n[ЗАГЛУШКА] Здесь будет отображаться информация о вашем текущем балансе.\n\n<i>Функция отслеживания баланса скоро!</i>"
+                    },
+                    "showLastactions": {
+                        "title": "📋 Последние Действия",
+                        "description": "Просмотр истории недавней активности",
+                        "button": "📋 Показать Действия",
+                        "initial": "📋 <b>Последние Действия</b>\n\nВыберите действие:",
+                        "response": "📋 <b>Последние Действия</b>\n\n[ЗАГЛУШКА] Здесь будет показана история ваших последних действий и активности.\n\n<i>Функция истории действий скоро!</i>"
+                    }
+                }
+            },
+            "es": {
+                "menu": {
+                    "joinToMe": {
+                        "title": "👥 Unirse A Mí",
+                        "description": "Conectar y unirse a la comunidad",
+                        "button": "👥 Unirse",
+                        "initial": "👥 <b>Unirse A Mí</b>\n\nSeleccione una acción:",
+                        "response": "👥 <b>Unirse A Mí</b>\n\n[PLACEHOLDER] Esta función le permitirá unirse a la comunidad o conectarse con otros usuarios.\n\n<i>¡Próximamente con implementación completa!</i>"
+                    },
+                    "explainWhatIsThis": {
+                        "title": "📖 ¿Qué Es Esto?",
+                        "description": "Aprende sobre Telega2Go y sus características",
+                        "button": "📖 Explicar",
+                        "initial": "📖 <b>¿Qué Es Esto?</b>\n\nSeleccione una acción:",
+                        "response": "📖 <b>¿Qué Es Esto?</b>\n\n[PLACEHOLDER] Telega2Go es un sistema seguro de entrega de OTP con integración de Telegram. Este bot le ayuda:\n\n🔐 Entrega segura de OTP\n📱 Verificación de código QR\n🔒 Mensajes autodestructivos\n🎭 Comandos interactivos divertidos\n\n<i>¡Más detalles próximamente!</i>"
+                    },
+                    "whatIsMyBalance": {
+                        "title": "💰 Mi Saldo",
+                        "description": "Verificar el saldo de la cuenta",
+                        "button": "💰 Ver Saldo",
+                        "initial": "💰 <b>Mi Saldo</b>\n\nSeleccione una acción:",
+                        "response": "💰 <b>Mi Saldo</b>\n\n[PLACEHOLDER] Aquí se mostrará la información de su saldo actual.\n\n<i>¡Función de seguimiento de saldo próximamente!</i>"
+                    },
+                    "showLastactions": {
+                        "title": "📋 Últimas Acciones",
+                        "description": "Ver historial de actividad reciente",
+                        "button": "📋 Mostrar Acciones",
+                        "initial": "📋 <b>Últimas Acciones</b>\n\nSeleccione una acción:",
+                        "response": "📋 <b>Últimas Acciones</b>\n\n[PLACEHOLDER] Aquí se mostrará su historial de acciones y actividad reciente.\n\n<i>¡Función de historial de acciones próximamente!</i>"
+                    }
+                }
+            },
+            "de": {
+                "menu": {
+                    "joinToMe": {
+                        "title": "👥 Beitreten",
+                        "description": "Verbinden und der Community beitreten",
+                        "button": "👥 Beitreten",
+                        "initial": "👥 <b>Beitreten</b>\n\nAktion auswählen:",
+                        "response": "👥 <b>Beitreten</b>\n\n[PLATZHALTER] Diese Funktion ermöglicht es Ihnen, der Community beizutreten oder sich mit anderen Benutzern zu verbinden.\n\n<i>Kommt bald mit vollständiger Implementierung!</i>"
+                    },
+                    "explainWhatIsThis": {
+                        "title": "📖 Was Ist Das",
+                        "description": "Erfahren Sie mehr über Telega2Go und seine Funktionen",
+                        "button": "📖 Erklären",
+                        "initial": "📖 <b>Was Ist Das</b>\n\nAktion auswählen:",
+                        "response": "📖 <b>Was Ist Das</b>\n\n[PLATZHALTER] Telega2Go ist ein sicheres OTP-Liefersystem mit Telegram-Integration. Dieser Bot hilft Ihnen:\n\n🔐 Sichere OTP-Lieferung\n📱 QR-Code-Verifizierung\n🔒 Selbstzerstörende Nachrichten\n🎭 Lustige interaktive Befehle\n\n<i>Weitere Details kommen bald!</i>"
+                    },
+                    "whatIsMyBalance": {
+                        "title": "💰 Mein Kontostand",
+                        "description": "Kontostand prüfen",
+                        "button": "💰 Kontostand Prüfen",
+                        "initial": "💰 <b>Mein Kontostand</b>\n\nAktion auswählen:",
+                        "response": "💰 <b>Mein Kontostand</b>\n\n[PLATZHALTER] Ihre aktuellen Kontostandsinformationen werden hier angezeigt.\n\n<i>Kontostandsverfolgungsfunktion kommt bald!</i>"
+                    },
+                    "showLastactions": {
+                        "title": "📋 Letzte Aktionen",
+                        "description": "Aktivitätsverlauf anzeigen",
+                        "button": "📋 Aktionen Zeigen",
+                        "initial": "📋 <b>Letzte Aktionen</b>\n\nAktion auswählen:",
+                        "response": "📋 <b>Letzte Aktionen</b>\n\n[PLATZHALTER] Ihr Aktivitätsverlauf wird hier angezeigt.\n\n<i>Aktionsverlaufsfunktion kommt bald!</i>"
+                    }
+                }
+            }
+        }
+    
+    def _get_language(self, language_code: Optional[str] = None) -> str:
+        """Get language code, defaulting to 'en' if not supported"""
+        if not language_code:
+            return "en"
+        
+        # Normalize language code (e.g., 'en-US' -> 'en', 'ru-RU' -> 'ru')
+        lang = language_code.lower().split('-')[0]
+        
+        # Check if we support this language
+        if lang in self.translations:
+            return lang
+        
+        # Default to English for unsupported languages
+        return "en"
+    
+    def _get_menu_text(self, action_key: str, language_code: Optional[str] = None, field: str = "title") -> str:
+        """Get translated menu text for an action"""
+        lang = self._get_language(language_code)
+        return self.translations[lang]["menu"][action_key][field]
+    
+    def _get_response_text(self, action_key: str, language_code: Optional[str] = None) -> str:
+        """Get translated response text for an action"""
+        lang = self._get_language(language_code)
+        return self.translations[lang]["menu"][action_key]["response"]
+    
+    async def handle_inline_query(self, inline_query_id: str, query: str, user_id: str, language_code: Optional[str] = None) -> bool:
         """Handle inline queries when @taxoin_bot (or any bot username) is mentioned in any chat"""
         try:
-            # Define menu actions with emojis
-            menu_actions = [
-                {
-                    "id": "1",
-                    "title": "👥 Join To Me",
-                    "description": "Connect and join the community",
-                    "initial_message": "👥 <b>Join To Me</b>\n\nSelect an action:",
-                    "button_text": "👥 Join To Me",
-                    "callback_data": "action_joinToMe"
-                },
-                {
-                    "id": "2",
-                    "title": "📖 Explain What Is This",
-                    "description": "Learn about Telega2Go and its features",
-                    "initial_message": "📖 <b>Explain What Is This</b>\n\nSelect an action:",
-                    "button_text": "📖 Explain",
-                    "callback_data": "action_explainWhatIsThis"
-                },
-                {
-                    "id": "3",
-                    "title": "💰 What Is My Balance",
-                    "description": "Check your account balance",
-                    "initial_message": "💰 <b>What Is My Balance</b>\n\nSelect an action:",
-                    "button_text": "💰 Check Balance",
-                    "callback_data": "action_whatIsMyBalance"
-                },
-                {
-                    "id": "4",
-                    "title": "📋 Show Last Actions",
-                    "description": "View your recent activity history",
-                    "initial_message": "📋 <b>Show Last Actions</b>\n\nSelect an action:",
-                    "button_text": "📋 Show Actions",
-                    "callback_data": "action_showLastactions"
-                }
+            # Get user language (default to 'en' if not provided or not supported)
+            lang = self._get_language(language_code)
+            logger.info(f"Handling inline query for user {user_id} with language: {lang}")
+            
+            # Define menu action keys
+            menu_action_keys = [
+                ("1", "joinToMe"),
+                ("2", "explainWhatIsThis"),
+                ("3", "whatIsMyBalance"),
+                ("4", "showLastactions")
             ]
             
-            # Build inline query results
+            # Build inline query results with translations
             results = []
-            for action in menu_actions:
+            for action_id, action_key in menu_action_keys:
+                # Get translated texts for this action
+                title = self._get_menu_text(action_key, language_code, "title")
+                description = self._get_menu_text(action_key, language_code, "description")
+                button_text = self._get_menu_text(action_key, language_code, "button")
+                initial_message = self._get_menu_text(action_key, language_code, "initial")
+                
+                # Map action_key to callback_data
+                callback_data_map = {
+                    "joinToMe": "action_joinToMe",
+                    "explainWhatIsThis": "action_explainWhatIsThis",
+                    "whatIsMyBalance": "action_whatIsMyBalance",
+                    "showLastactions": "action_showLastactions"
+                }
+                
                 # Create inline keyboard with button that will appear in the sent message
                 keyboard = [[{
-                    "text": action["button_text"],
-                    "callback_data": action["callback_data"]
+                    "text": button_text,
+                    "callback_data": callback_data_map[action_key]
                 }]]
                 
                 result = {
                     "type": "article",
-                    "id": action["id"],
-                    "title": action["title"],
-                    "description": action["description"],
+                    "id": action_id,
+                    "title": title,
+                    "description": description,
                     "input_message_content": {
-                        "message_text": action["initial_message"],
+                        "message_text": initial_message,
                         "parse_mode": "HTML"
                     },
                     "reply_markup": {
@@ -305,19 +456,36 @@ Try one of these:
             logger.error(f"Inline query exception: {e}", exc_info=True)
             return False
     
-    async def handle_callback_query(self, callback_query_id: str, chat_id: str, message_id: int, callback_data: str) -> bool:
+    async def handle_callback_query(self, callback_query_id: str, chat_id: str, message_id: int, callback_data: str, language_code: Optional[str] = None) -> bool:
         """Handle callback queries when menu buttons are pressed - posts answer into chat"""
         try:
-            # Define responses for each action
-            responses = {
-                "action_joinToMe": "👥 <b>Join To Me</b>\n\n[PLACEHOLDER] This feature will allow you to join the community or connect with other users.\n\n<i>Coming soon with full implementation!</i>",
-                "action_explainWhatIsThis": "📖 <b>Explain What Is This</b>\n\n[PLACEHOLDER] Telega2Go is a secure OTP delivery system with Telegram integration. This bot helps you:\n\n🔐 Secure OTP delivery\n📱 QR code verification\n🔒 Self-destructing messages\n🎭 Fun interactive commands\n\n<i>More details coming soon!</i>",
-                "action_whatIsMyBalance": "💰 <b>What Is My Balance</b>\n\n[PLACEHOLDER] Your current balance information will be displayed here.\n\n<i>Balance tracking feature coming soon!</i>",
-                "action_showLastactions": "📋 <b>Show Last Actions</b>\n\n[PLACEHOLDER] Your recent actions and activity history will be shown here.\n\n<i>Action history feature coming soon!</i>"
+            # Get user language (default to 'en' if not provided or not supported)
+            lang = self._get_language(language_code)
+            logger.info(f"Handling callback query '{callback_data}' for chat {chat_id} with language: {lang}")
+            
+            # Map callback_data to action_key
+            action_key_map = {
+                "action_joinToMe": "joinToMe",
+                "action_explainWhatIsThis": "explainWhatIsThis",
+                "action_whatIsMyBalance": "whatIsMyBalance",
+                "action_showLastactions": "showLastactions"
             }
             
-            # Get response text
-            response_text = responses.get(callback_data, "❓ Unknown action")
+            # Get action key
+            action_key = action_key_map.get(callback_data)
+            
+            if action_key:
+                # Get translated response text
+                response_text = self._get_response_text(action_key, language_code)
+            else:
+                # Fallback for unknown actions
+                fallback_texts = {
+                    "en": "❓ Unknown action",
+                    "ru": "❓ Неизвестное действие",
+                    "es": "❓ Acción desconocida",
+                    "de": "❓ Unbekannte Aktion"
+                }
+                response_text = fallback_texts.get(lang, fallback_texts["en"])
             
             # Answer the callback query and post message into chat
             async with httpx.AsyncClient(timeout=30.0) as client:

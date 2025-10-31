@@ -229,10 +229,12 @@ async def telegram_webhook(request: Request):
             inline_query = data["inline_query"]
             inline_query_id = inline_query["id"]
             query = inline_query.get("query", "")
-            user_id = str(inline_query["from"]["id"])
+            user = inline_query.get("from", {})
+            user_id = str(user.get("id", ""))
+            language_code = user.get("language_code")  # Get user's Telegram language
             
             if bot_commands:
-                success = await bot_commands.handle_inline_query(inline_query_id, query, user_id)
+                success = await bot_commands.handle_inline_query(inline_query_id, query, user_id, language_code)
                 if success:
                     logger.info(f"Handled inline query from user {user_id}")
                     return {"status": "success", "type": "inline_query"}
@@ -251,10 +253,12 @@ async def telegram_webhook(request: Request):
             message = callback_query.get("message", {})
             chat_id = str(message.get("chat", {}).get("id", ""))
             message_id = message.get("message_id", 0)
+            user = callback_query.get("from", {})
+            language_code = user.get("language_code")  # Get user's Telegram language
             
             if bot_commands:
                 success = await bot_commands.handle_callback_query(
-                    callback_query_id, chat_id, message_id, callback_data
+                    callback_query_id, chat_id, message_id, callback_data, language_code
                 )
                 if success:
                     logger.info(f"Handled callback query '{callback_data}' from chat {chat_id}")

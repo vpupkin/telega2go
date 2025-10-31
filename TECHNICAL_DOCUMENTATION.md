@@ -8,12 +8,15 @@
 - **[Docker-Only Setup](./A_DOCKER_ONLY_SETUP.md)** - Docker deployment guide
 
 ### **Features**
+- **[Multi-Language Support](./MULTI_LANGUAGE_SUPPORT_v2.10.0.md)** - Automatic language detection and translation (🇬🇧🇷🇺🇪🇸🇩🇪)
+- **[Telegram Inline Query Menu](./TELEGRAM_INLINE_QUERY_MENU_SETUP.md)** - Interactive menu via @taxoin_bot
 - **[Funny Telegram Bot Commands](./FUNNY_TELEGRAM_BOT_COMMANDS_v2.8.0.md)** - Bot entertainment commands
 - **[PWA User Registration System](./A_PWA_USER_REGISTRATION_SYSTEM.md)** - Registration system overview
 - **[Magic Link Authentication](./MAGIC_LINK_AUTHENTICATION_v2.1.0.md)** - Magic link implementation
 
 ### **Telegram Bot Features**
-- **[Inline Query Menu](./TELEGRAM_INLINE_QUERY_MENU_SETUP.md)** - Interactive menu via @bot_username
+- **[Inline Query Menu](./TELEGRAM_INLINE_QUERY_MENU_SETUP.md)** - Interactive menu via @taxoin_bot (multi-language)
+- **[Multi-Language Support](./MULTI_LANGUAGE_SUPPORT_v2.10.0.md)** - Auto-detect user language and translate menu/responses
 - **[Bot Commands](./FUNNY_TELEGRAM_BOT_COMMANDS_v2.8.0.md)** - /start, /help, /joke, etc.
 - **[OTP Delivery](./OTP_QR_CODE_FIX_v2.6.0.md)** - QR code and OTP sending
 
