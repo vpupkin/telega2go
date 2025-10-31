@@ -937,7 +937,15 @@ class FunnyBotCommands:
             logger.error(f"Inline query exception: {e}", exc_info=True)
             return False
     
-    async def handle_callback_query(self, callback_query_id: str, chat_id: str, message_id: int, callback_data: str, language_code: Optional[str] = None) -> bool:
+    async def handle_callback_query(
+        self, 
+        callback_query_id: str, 
+        chat_id: str, 
+        message_id: int, 
+        callback_data: str, 
+        language_code: Optional[str] = None,
+        telegram_user_service = None
+    ) -> bool:
         """Handle callback queries when menu buttons are pressed - posts answer into chat"""
         try:
             # Get user language (default to 'en' if not provided or not supported)
@@ -960,12 +968,36 @@ class FunnyBotCommands:
                 # Get translated response text
                 response_text = self._get_response_text(action_key, language_code)
                 
-                # ✅ NEW: For welcomeBack, add magic link button (KISS: Simple URL generation)
-                if action_key == "welcomeBack":
-                    # Generate magic link - we need user_id and email from DB
-                    # For now, show response with placeholder - will be enhanced later
-                    # response_text += f"\n\n🔗 <a href='https://putana.date/api/verify-magic-link?token=...'>Continue to Account</a>"
-                    pass  # Magic link generation will be added after backend integration
+                # ✅ NEW: For welcomeBack, add magic link button (KISS: Generate from DB)
+                if action_key == "welcomeBack" and telegram_user_service:
+                    try:
+                        # Get user from DB using chat_id (which is telegram_user_id)
+                        telegram_user_id = int(chat_id)
+                        status = await telegram_user_service.check_registration_status(telegram_user_id)
+                        registered_user = status.get("user")
+                        
+                        if registered_user:
+                            # Generate magic link using backend API (KISS: HTTP call)
+                            backend_url = os.environ.get('BACKEND_URL', 'http://backend:8000')
+                            async with httpx.AsyncClient(timeout=10.0) as client:
+                                # Call backend to generate magic link token
+                                response = await client.post(
+                                    f"{backend_url}/api/generate-magic-link",
+                                    json={
+                                        "email": registered_user.get("email"),
+                                        "user_id": registered_user.get("id")
+                                    }
+                                )
+                                
+                                if response.status_code == 200:
+                                    magic_link_data = response.json()
+                                    magic_link_url = magic_link_data.get("magic_link_url", "")
+                                    if magic_link_url:
+                                        # Add magic link button to message
+                                        response_text += f"\n\n🔗 <a href='{magic_link_url}'>Continue to Account →</a>"
+                    except Exception as e:
+                        logger.error(f"Error generating magic link: {e}")
+                        # Continue without magic link if generation fails
             else:
                 # Fallback for unknown actions
                 fallback_texts = {

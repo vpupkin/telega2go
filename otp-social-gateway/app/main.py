@@ -287,8 +287,10 @@ async def telegram_webhook(request: Request):
             language_code = user.get("language_code")  # Get user's Telegram language
             
             if bot_commands:
+                # ✅ Pass telegram_user_service for magic link generation
                 success = await bot_commands.handle_callback_query(
-                    callback_query_id, chat_id, message_id, callback_data, language_code
+                    callback_query_id, chat_id, message_id, callback_data, language_code,
+                    telegram_user_service=telegram_user_service
                 )
                 if success:
                     logger.info(f"Handled callback query '{callback_data}' from chat {chat_id}")

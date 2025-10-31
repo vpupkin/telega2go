@@ -188,6 +188,32 @@ def verify_magic_link_token(token: str) -> Optional[dict]:
         logging.error(f"Magic link token verification failed: {e}")
         return None
 
+@api_router.post("/generate-magic-link")
+async def generate_magic_link(request: dict):
+    """Generate magic link for registered user - KISS: Simple token creation"""
+    email = request.get("email")
+    user_id = request.get("user_id")
+    
+    if not email or not user_id:
+        raise HTTPException(status_code=400, detail="Email and user_id are required")
+    
+    # Verify user exists and is verified
+    user = await db.users.find_one({"id": user_id, "email": email, "is_verified": True})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found or not verified")
+    
+    # Generate magic link token
+    token = create_magic_link_token(email, user_id)
+    if not token:
+        raise HTTPException(status_code=500, detail="Failed to generate magic link")
+    
+    magic_link_url = f"https://putana.date/api/verify-magic-link?token={token}"
+    
+    return {
+        "magic_link_url": magic_link_url,
+        "token": token
+    }
+
 @api_router.get("/verify-magic-link")
 async def verify_magic_link(token: str):
     """Verify magic link and authenticate registered user - KISS: Simple redirect"""
