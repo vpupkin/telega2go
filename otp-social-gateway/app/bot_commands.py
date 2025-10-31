@@ -892,14 +892,18 @@ class FunnyBotCommands:
                     title = title.replace("{name}", user_name)
                     initial_message = initial_message.replace("{name}", user_name)
                 
-                # ✅ PENALTY FIX: For joinToMe, add registration URL button
+                # ✅ PENALTY++ FIX: For joinToMe, add registration URL button AND clickable link in message
                 if action_key == "joinToMe":
                     # Generate registration URL with telegram_user_id
                     registration_url = f"https://putana.date/registrationOfNewUser?telegram_user_id={telegram_user_id}"
+                    
+                    # ✅ CRITICAL: Add clickable URL link in message content itself
+                    initial_message += f"\n\n🚀 <a href='{registration_url}'>Click here to start registration →</a>"
+                    
                     # Create inline keyboard with URL button
                     keyboard = [[{
                         "text": button_text,
-                        "url": registration_url  # ✅ URL button instead of callback
+                        "url": registration_url  # ✅ URL button
                     }]]
                 else:
                     # For other actions, use callback_data button
