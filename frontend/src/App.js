@@ -12,6 +12,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<UserRegistration />} />
+          <Route path="/registrationOfNewUser" element={<UserRegistration />} />
           <Route path="/admin" element={<OTPDashboard />} />
           <Route path="/verify" element={<MagicLinkVerification />} />
         </Routes>

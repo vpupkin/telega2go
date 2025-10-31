@@ -1,28 +1,90 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle, User, Mail, Phone, Shield, ArrowRight, ArrowLeft } from 'lucide-react';
+import { CheckCircle, User, Mail, Phone, Shield, ArrowRight, ArrowLeft, AlertCircle } from 'lucide-react';
 
 const UserRegistration = () => {
+  const [searchParams] = useSearchParams();
+  const telegramUserIdParam = searchParams.get('telegram_user_id');
+  
   const [step, setStep] = useState(1); // 1: Registration Form, 2: OTP Verification, 3: Success
   const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://putana.date:55552';
+  const API_BASE = `${BACKEND_URL}/api`;
   
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     phone: '',
     telegram_chat_id: '',
-    telegram_username: ''
+    telegram_username: '',
+    telegram_user_id: telegramUserIdParam || ''
   });
   const [otpCode, setOtpCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [useUsername, setUseUsername] = useState(true); // Default to username for simplicity
+  const [useUsername, setUseUsername] = useState(true);
+  const [telegramData, setTelegramData] = useState(null);
+  const [nameAvailable, setNameAvailable] = useState(true);
+  const [nameMessage, setNameMessage] = useState('');
+  const [loadingTelegramData, setLoadingTelegramData] = useState(false);
+
+  // ✅ Load Telegram data on mount if telegram_user_id is provided
+  useEffect(() => {
+    if (telegramUserIdParam) {
+      loadTelegramData(telegramUserIdParam);
+    }
+  }, [telegramUserIdParam]);
+
+  const loadTelegramData = async (telegramUserId) => {
+    setLoadingTelegramData(true);
+    setError('');
+    try {
+      const response = await fetch(`${API_BASE}/registrationOfNewUser?telegram_user_id=${telegramUserId}`);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to load Telegram data');
+      }
+      
+      const data = await response.json();
+      setTelegramData(data);
+      
+      // Pre-fill form with Telegram data
+      setFormData(prev => ({
+        ...prev,
+        telegram_username: data.telegram_username || '',
+        telegram_user_id: data.telegram_user_id.toString()
+      }));
+      
+      // Handle name availability
+      setNameAvailable(data.name_available);
+      setNameMessage(data.name_message || '');
+      
+      // Pre-fill name only if available
+      if (data.name_available && data.suggested_name) {
+        setFormData(prev => ({
+          ...prev,
+          name: data.suggested_name
+        }));
+      } else {
+        // Name is taken - leave empty and show message
+        setFormData(prev => ({
+          ...prev,
+          name: ''
+        }));
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingTelegramData(false);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -66,7 +128,7 @@ const UserRegistration = () => {
 
     try {
       // Step 1: Register user and send OTP
-      const response = await fetch(`${BACKEND_URL}/register`, {
+      const response = await fetch(`${API_BASE}/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -75,6 +137,8 @@ const UserRegistration = () => {
           name: formData.name,
           email: formData.email,
           phone: formData.phone,
+          // Include telegram_user_id if available (from Telegram bot)
+          ...(formData.telegram_user_id ? { telegram_user_id: parseInt(formData.telegram_user_id) } : {}),
           // Only send the relevant field based on user choice
           ...(useUsername 
             ? { telegram_username: formData.telegram_username }
@@ -109,7 +173,7 @@ const UserRegistration = () => {
     setError('');
 
     try {
-      const response = await fetch(`${BACKEND_URL}/verify-otp`, {
+      const response = await fetch(`${API_BASE}/verify-otp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -148,7 +212,7 @@ const UserRegistration = () => {
     setError('');
 
     try {
-      const response = await fetch(`${BACKEND_URL}/resend-otp`, {
+      const response = await fetch(`${API_BASE}/resend-otp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -177,12 +241,22 @@ const UserRegistration = () => {
         <div className="mx-auto mb-4 w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
           <User className="w-6 h-6 text-blue-600" />
         </div>
-        <CardTitle className="text-2xl font-bold">Create Account</CardTitle>
+        <CardTitle className="text-2xl font-bold">
+          {telegramUserIdParam ? 'Complete Your Registration' : 'Create Account'}
+        </CardTitle>
         <CardDescription>
-          Register with your details and verify via Telegram OTP
+          {telegramUserIdParam 
+            ? 'Welcome! Please complete your registration with your details'
+            : 'Register with your details and verify via Telegram OTP'}
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {loadingTelegramData && (
+          <Alert className="mb-4">
+            <AlertDescription>Loading your Telegram data...</AlertDescription>
+          </Alert>
+        )}
+        
         <form onSubmit={handleRegistration} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">Full Name</Label>
@@ -195,6 +269,17 @@ const UserRegistration = () => {
               onChange={handleInputChange}
               required
             />
+            {!nameAvailable && nameMessage && (
+              <Alert variant="destructive" className="mt-2">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{nameMessage}</AlertDescription>
+              </Alert>
+            )}
+            {telegramData && nameAvailable && telegramData.first_name && (
+              <p className="text-sm text-gray-500 mt-1">
+                Pre-filled from Telegram: {telegramData.first_name}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -243,7 +328,31 @@ const UserRegistration = () => {
               </Button>
             </div>
             
-            {useUsername ? (
+            {telegramUserIdParam ? (
+              <div className="space-y-2">
+                <Label htmlFor="telegram_username">Telegram Username</Label>
+                <Input
+                  id="telegram_username"
+                  name="telegram_username"
+                  type="text"
+                  placeholder="@yourusername"
+                  value={formData.telegram_username}
+                  onChange={handleInputChange}
+                  disabled={!!telegramData?.telegram_username}
+                  required
+                />
+                {telegramData?.telegram_username && (
+                  <p className="text-xs text-green-600">
+                    ✅ Pre-filled from Telegram: {telegramData.telegram_username}
+                  </p>
+                )}
+                {!telegramData?.telegram_username && (
+                  <p className="text-xs text-gray-500">
+                    Your Telegram username will be linked automatically
+                  </p>
+                )}
+              </div>
+            ) : useUsername ? (
               <div className="space-y-2">
                 <Label htmlFor="telegram_username">Telegram Username</Label>
                 <Input
