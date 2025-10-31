@@ -81,7 +81,43 @@
 - `v3-add-magic-link-authentication`
 - `v4-pwa-registration-system`
 
-### 8. **DEVELOPMENT WORKFLOW**
+### 8. **UI TESTING WITH MCP BROWSER TOOLS**
+- ✅ **ALWAYS** use MCP browser tools (Playwright/Chrome DevTools) for UI testing when needed
+- ✅ **ALWAYS** trace UI elements by logging DOM texts and UIDs from UI parts
+- ✅ **ALWAYS** check network requests when debugging API calls
+- ✅ **ALWAYS** take snapshots of page state for debugging
+- ✅ **ALWAYS** verify UI elements match expected behavior before reporting success
+- ❌ **NEVER** skip UI testing when implementing frontend features
+- ❌ **NEVER** assume UI works without visual verification
+
+**MCP Browser Tool Usage:**
+- Use `mcp_playwright_browser_navigate` to navigate to pages
+- Use `mcp_playwright_browser_snapshot` to capture page state
+- Use `mcp_playwright_browser_evaluate` to inspect DOM elements
+- Use `mcp_playwright_browser_network_requests` to check API calls
+- Use `mcp_chrome-devtools_*` tools for advanced debugging
+
+### 9. **CLEAN FRONTEND URL SEPARATION**
+- ✅ **ALWAYS** maintain clean separation of implementation for each URL/route
+- ✅ **ALWAYS** create dedicated components for each major URL path
+- ✅ **ALWAYS** use React Router for routing (no hardcoded URLs)
+- ✅ **ALWAYS** document URL structure and component mapping
+- ❌ **NEVER** mix concerns between different routes
+- ❌ **NEVER** create monolithic components handling multiple routes
+
+**URL Structure:**
+- `/` - Home/Landing page
+- `/registrationOfNewUser` - Telegram user registration (with URR_ID support)
+- `/admin` - Admin panel (OTP history, user management)
+- `/dashboard` - User dashboard (after authentication)
+- `/verify-magic-link` - Magic link verification page
+
+**Component Mapping:**
+- Each route → Dedicated React component
+- Shared components → Reusable UI elements (Button, Input, etc.)
+- Route-specific logic → Contained within route component
+
+### 10. **DEVELOPMENT WORKFLOW**
 ```
 1. Identify issue/problem
 2. Propose solution (ask for approval)
@@ -96,7 +132,36 @@
 11. Create tag with sequential number + keywords (if requested)
 ```
 
-### 9. **ITERATIVE BUG FIXING WORKFLOW - MANDATORY**
+### 9. **CORRECT PORT USAGE - MANDATORY**
+- ✅ **ALWAYS** use the correct ports as defined in `docker-compose.yml`
+- ✅ **ALWAYS** verify port configuration before testing or accessing services
+- ❌ **NEVER** use incorrect ports (e.g., 5573 instead of 55553)
+- ❌ **NEVER** hardcode ports without checking `docker-compose.yml`
+- 🚨 **VIOLATION**: Using wrong ports is a CRITICAL RULE VIOLATION
+
+**Correct Port Configuration (from docker-compose.yml):**
+| Service | External Port | Internal Port | URL |
+|---------|---------------|---------------|-----|
+| **Frontend PWA** | **55553** | 80 | http://localhost:55553 |
+| **Backend API** | **55552** | 8000 | http://localhost:55552 |
+| **OTP Gateway** | **55551** | 55155 | http://localhost:55551 |
+| **MongoDB** | **55554** | 27017 | mongodb://localhost:55554 |
+| **Nginx (Optional)** | 5575 (HTTP), 5576 (HTTPS) | 80, 443 | http://localhost:5575 |
+
+**Port Usage Rules:**
+- ✅ **ALWAYS** use `localhost:55553` for frontend (NOT 5573)
+- ✅ **ALWAYS** use `localhost:55552` for backend API (NOT 5572)
+- ✅ **ALWAYS** use `localhost:55551` for OTP Gateway (NOT 5571)
+- ✅ **ALWAYS** verify ports match `docker-compose.yml` before committing
+- ✅ **ALWAYS** update test scripts to use correct ports
+- ✅ **ALWAYS** check `docker-compose.yml` when in doubt about ports
+
+**For Production/Remote:**
+- Frontend: `https://putana.date` (port 80/443)
+- Backend API: `https://putana.date/api` (or `https://putana.date:55552/api` if direct access needed)
+- OTP Gateway: `https://putana.date/otp` (or `https://putana.date:55551`)
+
+### 11. **ITERATIVE BUG FIXING WORKFLOW - MANDATORY**
 - ✅ **ALWAYS** redeploy after fixing bugs on any iteration
 - ✅ **ALWAYS** run integration tests and check for errors before reporting success
 - ✅ **ALWAYS** document all recognized/detected errors (if any)
@@ -180,5 +245,9 @@ I understand and will follow these rules:
 - ✅ **ALWAYS document all detected errors and add to error list**
 - ✅ **ALWAYS iterate until no errors detected (if errors → fix and redeploy)**
 - ❌ **NEVER skip redeployment or tests after bug fixes**
+- ✅ **ALWAYS use correct ports (5555x) as defined in docker-compose.yml**
+- ❌ **NEVER use incorrect ports (557x)**
+- ✅ **ALWAYS use MCP browser tools for UI testing when needed**
+- ✅ **ALWAYS maintain clean URL/route separation in frontend**
 
 **These rules are now MANDATORY for all future development.**

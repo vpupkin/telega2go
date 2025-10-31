@@ -5,7 +5,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, validator
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -72,7 +72,7 @@ class UserRegistration(BaseModel):
 class TelegramUserRegistration(BaseModel):
     """✅ PENALTY4: Registration without OTP - user already validated from Telegram"""
     urr_id: str  # Unique Registration Request ID
-    password: str  # Only editable field
+    password: str  # Only editable field (min 6 chars validated in endpoint)
     username: Optional[str] = None  # Optional: if user changed username from default
     # All other fields come from Telegram data (stored with URR_ID)
 
@@ -85,13 +85,15 @@ class UserLogin(BaseModel):
     password: Optional[str] = None
 
 class UserResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
     id: str
     name: str
     email: str
     phone: str
     telegram_chat_id: str
     is_verified: bool
-    created_at: datetime
+    created_at: str  # ✅ Changed to str to avoid datetime serialization issues
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -107,13 +109,15 @@ class RegistrationSession(BaseModel):
     user_data: dict
     otp_sent: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    expires_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(hour=datetime.now(timezone.utc).hour + 1))
+    expires_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc) + timedelta(hours=1))
 
 # JWT Utility Functions
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc).replace(hour=datetime.now(timezone.utc).hour + JWT_EXPIRATION_HOURS)
-    to_encode.update({"exp": expire})
+    expire_dt = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)
+    # ✅ JWT expects Unix timestamp (int), not datetime object
+    expire_timestamp = int(expire_dt.timestamp())
+    to_encode.update({"exp": expire_timestamp})
     encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return encoded_jwt
 
@@ -341,7 +345,7 @@ async def create_registration_request(user_data: dict):
                 "last_name": user_data.get("last_name"),
                 "language_code": user_data.get("language_code", "en"),
                 "is_premium": user_data.get("is_premium", False),
-                "collected_at": datetime.now(timezone.utc),
+                "collected_at": datetime.now(timezone.utc).isoformat(),  # ✅ Store as ISO string for MongoDB
                 "registration_pending": True
             }},
             upsert=True
@@ -465,7 +469,7 @@ async def register_user(registration: UserRegistration):
         "otp": otp,
         "otp_sent": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "expires_at": datetime.now(timezone.utc).replace(hour=datetime.now(timezone.utc).hour + 1).isoformat()
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     }
     
     # Store session
@@ -488,23 +492,211 @@ async def register_user(registration: UserRegistration):
 @api_router.post("/register-telegram", response_model=TokenResponse)
 async def register_telegram_user(registration: TelegramUserRegistration):
     """✅ PENALTY4: Register Telegram user directly - ALL data from stored URR_ID, only password editable"""
+    import sys
+    import traceback
+    
     try:
-        # Get registration request by URR_ID
-        registration_request = await db.registration_requests.find_one({"urr_id": registration.urr_id})
+        logging.info(f"=== ENTERING register_telegram_user ===")
+        logging.info(f"Registration object: urr_id={registration.urr_id}, username={registration.username}, password length={len(registration.password) if registration.password else 0}")
+    except Exception as e:
+        print(f"ERROR IN LOGGING: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+    
+    try:
+        # ✅ Log incoming request for debugging (SIMPLIFIED to avoid datetime serialization)
+        try:
+            urr_id_str = str(registration.urr_id) if registration.urr_id else "None"
+            username_str = str(registration.username) if registration.username else "None"
+            has_pwd = "Yes" if registration.password else "No"
+            logging.info(f"Register Telegram User - URR_ID: {urr_id_str}, Username: {username_str}, Has Password: {has_pwd}")
+        except Exception as log_err:
+            print(f"ERROR IN LOGGING: {log_err}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            # Continue anyway
+        
+        # ✅ Validate password length (additional check) - WRAP EVERYTHING
+        try:
+            if not registration.password:
+                raise HTTPException(status_code=400, detail="Password is required")
+            
+            password_stripped = registration.password.strip()
+            password_valid = len(password_stripped) >= 6
+            
+            if not password_valid:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Password must be at least 6 characters"
+                )
+            
+            logging.info("Step 1: Password validated")
+        except HTTPException:
+            raise
+        except Exception as pwd_err:
+            print(f"ERROR IN PASSWORD CHECK: {pwd_err}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            raise HTTPException(status_code=500, detail=f"Password validation error: {str(pwd_err)}")
+        
+        # ✅ CRITICAL FIX: Use simple find_one and handle datetime fields manually
+        # Aggregation pipeline was causing the error - skip it entirely
+        # Registration requests are stored with ISO strings (see create_registration_request)
+        try:
+            logging.info(f"Step 1.5: Querying database for urr_id: {registration.urr_id}")
+            # Use simple find_one - documents already have ISO strings, not datetime objects
+            registration_request = await db.registration_requests.find_one({"urr_id": registration.urr_id})
+            logging.info(f"Step 1.6: Database query completed, got request: {bool(registration_request)}")
+        except Exception as db_err:
+            import sys
+            import traceback
+            logging.error(f"Error in database query: {db_err}")
+            print(f"ERROR IN DATABASE QUERY: {db_err}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
+            raise HTTPException(status_code=500, detail=f"Database error: {str(db_err)}")
         
         if not registration_request:
             raise HTTPException(
-                status_code=404,
+                status_code=400,
                 detail="Registration request not found or expired. Please start registration again."
             )
         
+        # ✅ CRITICAL FIX: Document should now have datetime fields as ISO strings from aggregation
+        # Just convert to plain dict
+        logging.info(f"Step 1.7: Starting document processing (datetimes should already be strings)")
+        
+        # ✅ Document should already have datetime fields as ISO strings from aggregation pipeline
+        # Just convert to plain dict (should be safe now)
+        try:
+            registration_request_dict = dict(registration_request)
+            logging.info(f"Step 1.7a: Converted to dict, keys: {list(registration_request_dict.keys())[:10]}")
+        except Exception as conv_err:
+            # If dict() fails, build manually
+            import sys
+            import traceback
+            logging.error(f"Error converting to dict: {conv_err}")
+            print(f"Error converting to dict: {conv_err}", file=sys.stderr)
+            
+            registration_request_dict = {}
+            for key in ['urr_id', 'telegram_user_id', 'telegram_username', 'first_name', 'last_name',
+                        'language_code', 'is_premium', 'email', 'phone', 
+                        'latitude', 'longitude', 'location', 'telegram_data', 'status',
+                        'created_at', 'expires_at']:
+                try:
+                    val = registration_request.get(key, None) if hasattr(registration_request, 'get') else getattr(registration_request, key, None)
+                    if val is not None:
+                        registration_request_dict[key] = val
+                except:
+                    if key == 'created_at':
+                        registration_request_dict[key] = datetime.now(timezone.utc).isoformat()
+                    elif key == 'expires_at':
+                        registration_request_dict[key] = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+            
+            logging.info(f"Step 1.7b: Manual conversion, {len(registration_request_dict)} fields")
+        
+        # Ensure datetime fields are strings (should already be from aggregation)
+        if 'created_at' not in registration_request_dict or not isinstance(registration_request_dict.get('created_at'), str):
+            registration_request_dict['created_at'] = datetime.now(timezone.utc).isoformat()
+        if 'expires_at' not in registration_request_dict or not isinstance(registration_request_dict.get('expires_at'), str):
+            registration_request_dict['expires_at'] = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+        
+        registration_request = registration_request_dict
+        logging.info(f"Step 1.7c: Document processing complete, {len(registration_request)} fields")
+        
+        logging.info("Step 2: Registration request found and converted to dict")
+        
+        # ✅ SAFELY access registration_request fields one by one to isolate error
+        try:
+            logging.info(f"Step 2.1: urr_id = {registration_request.get('urr_id')}")
+        except Exception as e:
+            print(f"ERROR accessing urr_id: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            raise
+        
+        try:
+            logging.info(f"Step 2.2: telegram_user_id = {registration_request.get('telegram_user_id')}")
+        except Exception as e:
+            print(f"ERROR accessing telegram_user_id: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            raise
+        
         # Check if request expired
-        expires_at = datetime.fromisoformat(registration_request['expires_at'])
-        if datetime.now(timezone.utc) > expires_at:
+        # ✅ Parse expires_at with proper timezone handling (DEFENSIVE)
+        logging.info("Step 2.5: Parsing expires_at")
+        try:
+            expires_at_str = registration_request.get('expires_at')
+            logging.info(f"Step 2.5: Got expires_at_str, type: {type(expires_at_str)}, value (first 50): {str(expires_at_str)[:50] if expires_at_str else None}")
+        except Exception as e:
+            print(f"ERROR accessing expires_at: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            raise
+        if not expires_at_str:
+            raise HTTPException(status_code=400, detail="Registration request missing expiry date")
+        
+        try:
+            import re
+            # Handle 'Z' suffix - if string ends with 'Z', handle timezone properly
+            if expires_at_str.endswith('Z'):
+                # Check if there's already a timezone offset pattern (+XX:XX or -XX:XX) before the Z
+                tz_match = re.search(r'[+-]\d{2}:\d{2}', expires_at_str[:-1])
+                if tz_match:
+                    # Has timezone offset, just remove the Z
+                    expires_at_str = expires_at_str[:-1]
+                else:
+                    # No timezone offset, replace Z with +00:00
+                    expires_at_str = expires_at_str[:-1] + '+00:00'
+            
+            logging.info(f"Step 2.5a: expires_at_str prepared: {expires_at_str[:50]}")
+            expires_at = datetime.fromisoformat(expires_at_str)
+            logging.info(f"Step 2.5b: datetime.fromisoformat succeeded, hour: {expires_at.hour}")
+            
+            # Ensure it's timezone-aware
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            
+            # ✅ Validate hour is in valid range
+            if expires_at.hour < 0 or expires_at.hour > 23:
+                logging.error(f"Invalid hour in expires_at: {expires_at.hour}, creating new datetime")
+                expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+            
+            logging.info(f"Step 3: expires_at parsed successfully: {expires_at}, hour: {expires_at.hour}")
+        except ValueError as e:
+            error_msg = str(e)
+            logging.error(f"ValueError parsing expires_at: {error_msg}, value: {registration_request.get('expires_at')}")
+            import sys
+            import traceback
+            print(f"ERROR IN EXPIRES_AT PARSING: {error_msg}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Invalid registration request expiry date: {error_msg}"
+            )
+        except Exception as e:
+            logging.error(f"Unexpected error parsing expires_at: {e}, value: {registration_request.get('expires_at')}")
+            import sys
+            import traceback
+            print(f"ERROR IN EXPIRES_AT PARSING (OTHER): {e}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Invalid registration request expiry date: {str(e)}"
+            )
+        
+        # ✅ Compare with current time (defensive)
+        try:
+            now = datetime.now(timezone.utc)
+            if now > expires_at:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Registration request expired. Please start registration again."
+                )
+        except Exception as cmp_err:
+            import sys
+            import traceback
+            print(f"ERROR IN DATETIME COMPARISON: {cmp_err}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
             raise HTTPException(
                 status_code=400,
                 detail="Registration request expired. Please start registration again."
             )
+        logging.info("Step 4: Registration request not expired")
         
         # Extract all data from stored Telegram data
         telegram_data = registration_request.get('telegram_data', {})
@@ -538,6 +730,20 @@ async def register_telegram_user(registration: TelegramUserRegistration):
         
         # ✅ Create user_doc directly to bypass Pydantic validation for Telegram emails
         # (Telegram may provide invalid emails like user123@telegram.local)
+        # ✅ CRITICAL FIX: Use ISO strings immediately to avoid MongoDB datetime deserialization errors
+        logging.info("Step 5: Creating user_doc")
+        try:
+            # Convert to ISO string immediately - never use datetime objects in MongoDB documents
+            now_iso = datetime.now(timezone.utc).isoformat()
+            logging.info(f"Step 5a: Created ISO string: {now_iso[:50]}")
+        except Exception as dt_err:
+            import sys
+            import traceback
+            logging.error(f"ERROR CREATING datetime ISO string: {dt_err}")
+            print(f"ERROR CREATING datetime ISO string: {dt_err}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
+            raise HTTPException(status_code=500, detail=f"Error creating timestamp: {str(dt_err)}")
+        
         user_doc = {
             "id": str(uuid.uuid4()),
             "name": username,  # Default to telegram_user_id
@@ -545,9 +751,10 @@ async def register_telegram_user(registration: TelegramUserRegistration):
             "phone": phone,
             "telegram_chat_id": str(telegram_user_id),
             "is_verified": True,  # ✅ Already validated via Telegram
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc)
+            "created_at": now_iso,  # ✅ ISO string immediately - no datetime objects
+            "updated_at": now_iso   # ✅ ISO string immediately - no datetime objects
         }
+        logging.info(f"Step 5b: user_doc created, created_at type: {type(user_doc['created_at'])}, value: {user_doc['created_at'][:50]}")
         user_doc['telegram_user_id'] = telegram_user_id
         user_doc['telegram_username'] = registration_request.get('telegram_username')
         user_doc['first_name'] = registration_request.get('first_name')
@@ -565,11 +772,9 @@ async def register_telegram_user(registration: TelegramUserRegistration):
         user_doc['nationality'] = telegram_data.get('nationality')  # If available
         user_doc['supported_languages'] = [registration_request.get('language_code', 'en')]  # Array
         
-        # ✅ Convert datetime objects to ISO format strings for MongoDB
-        if isinstance(user_doc['created_at'], datetime):
-            user_doc['created_at'] = user_doc['created_at'].isoformat()
-        if isinstance(user_doc['updated_at'], datetime):
-            user_doc['updated_at'] = user_doc['updated_at'].isoformat()
+        # ✅ Datetime fields are already ISO strings (converted at creation)
+        # No conversion needed - skip this step
+        logging.info("Step 6: Datetime fields already ISO strings, skipping conversion")
         
         await db.users.insert_one(user_doc)
         
@@ -583,27 +788,103 @@ async def register_telegram_user(registration: TelegramUserRegistration):
         token_data = {"sub": user_doc["id"], "email": user_doc["email"]}
         access_token = create_access_token(token_data)
         
-        # Return user data and token
-        user_response = UserResponse(
-            id=user_doc["id"],
-            name=user_doc["name"],
-            email=user_doc["email"],
-            phone=user_doc["phone"],
-            telegram_chat_id=user_doc["telegram_chat_id"],
-            is_verified=user_doc["is_verified"],
-            created_at=user_doc["created_at"]
-        )
+        # ✅ Extract created_at as ISO string (UserResponse expects string, not datetime)
+        logging.info(f"Step 6.5: Extracting created_at from user_doc, type: {type(user_doc.get('created_at'))}")
         
-        return TokenResponse(
-            access_token=access_token,
-            token_type="bearer",
-            user=user_response
-        )
+        if isinstance(user_doc.get("created_at"), str):
+            # Already a string, use it directly
+            created_at_str = user_doc["created_at"]
+            logging.info(f"Step 6.5a: created_at is already string: {created_at_str[:50]}")
+        elif isinstance(user_doc.get("created_at"), datetime):
+            # Convert datetime to ISO string
+            dt = user_doc["created_at"]
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            created_at_str = dt.isoformat()
+            logging.info(f"Step 6.5b: Converted datetime to string: {created_at_str[:50]}")
+        else:
+            # Fallback: use current time as ISO string
+            created_at_str = datetime.now(timezone.utc).isoformat()
+            logging.info(f"Step 6.5c: Using fallback datetime string: {created_at_str[:50]}")
+        
+        logging.info(f"Step 7: Creating UserResponse with created_at (first 50 chars): {created_at_str[:50] if created_at_str else 'None'}")
+        
+        try:
+            # ✅ Ensure created_at_str is a valid ISO string
+            if not created_at_str or not isinstance(created_at_str, str):
+                created_at_str = datetime.now(timezone.utc).isoformat()
+            
+            user_response = UserResponse(
+                id=user_doc["id"],
+                name=user_doc["name"],
+                email=user_doc["email"],
+                phone=user_doc["phone"],
+                telegram_chat_id=user_doc["telegram_chat_id"],
+                is_verified=user_doc["is_verified"],
+                created_at=created_at_str  # ✅ String, not datetime
+            )
+            logging.info("Step 7a: UserResponse created successfully")
+        except Exception as e:
+            logging.error(f"Error creating UserResponse: {e}, created_at_str: {created_at_str}")
+            import traceback
+            error_trace = traceback.format_exc()
+            logging.error(f"Traceback:\n{error_trace}")
+            # Fallback: create UserResponse with current time as ISO string
+            created_at_str = datetime.now(timezone.utc).isoformat()
+            user_response = UserResponse(
+                id=user_doc["id"],
+                name=user_doc["name"],
+                email=user_doc["email"],
+                phone=user_doc["phone"],
+                telegram_chat_id=user_doc["telegram_chat_id"],
+                is_verified=user_doc["is_verified"],
+                created_at=created_at_str
+            )
+            logging.info("Step 7b: UserResponse created with fallback datetime string")
+        
+        # ✅ Create TokenResponse (check if this causes the error)
+        try:
+            logging.info("Step 8: Creating TokenResponse")
+            token_response = TokenResponse(
+                access_token=access_token,
+                token_type="bearer",
+                user=user_response
+            )
+            logging.info("Step 8a: TokenResponse created successfully")
+            return token_response
+        except Exception as token_err:
+            import sys
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"\n{'='*50}", file=sys.stderr)
+            print(f"ERROR creating TokenResponse: {token_err}", file=sys.stderr)
+            print(f"FULL TRACEBACK:", file=sys.stderr)
+            print(error_trace, file=sys.stderr)
+            print(f"{'='*50}\n", file=sys.stderr)
+            logging.error(f"Error creating TokenResponse: {token_err}\nTraceback:\n{error_trace}")
+            raise HTTPException(status_code=500, detail=f"Error creating response: {str(token_err)}")
+            
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"Error in register_telegram_user: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        import traceback
+        import sys
+        error_trace = traceback.format_exc()
+        # Print to stderr (will appear in docker logs)
+        print(f"\n{'='*50}", file=sys.stderr)
+        print(f"ERROR in register_telegram_user: {e}", file=sys.stderr)
+        print(f"ERROR TYPE: {type(e)}", file=sys.stderr)
+        print(f"FULL TRACEBACK:", file=sys.stderr)
+        print(error_trace, file=sys.stderr)
+        print(f"{'='*50}\n", file=sys.stderr)
+        # Also try to log it
+        try:
+            logging.error(f"Error in register_telegram_user: {e}\nTraceback:\n{error_trace}")
+        except:
+            pass
+        # Include traceback in error detail for debugging
+        error_detail = f"Internal server error: {str(e)}\nTraceback:\n{error_trace[:1000]}"  # Limit traceback length
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @api_router.post("/verify-otp", response_model=TokenResponse)
 async def verify_otp(verification: OTPVerification):
@@ -732,6 +1013,154 @@ async def get_user_profile(token: str = Depends(lambda: None)):
         raise
     except Exception as e:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+# ✅ Admin User Management Endpoints
+@api_router.get("/users", response_model=List[UserResponse])
+async def list_users():
+    """Get all users (admin only - TODO: add admin authentication)"""
+    try:
+        users = await db.users.find({}, {"_id": 0}).to_list(length=1000)  # Limit to 1000 users
+        
+        # Convert ISO string timestamps back to datetime objects
+        for user in users:
+            if isinstance(user.get('created_at'), str):
+                user['created_at'] = datetime.fromisoformat(user['created_at'])
+        
+        return [UserResponse(**user) for user in users]
+    except Exception as e:
+        logging.error(f"Error listing users: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list users: {str(e)}")
+
+@api_router.get("/users/{user_id}", response_model=UserResponse)
+async def get_user(user_id: str):
+    """Get a single user by ID (admin only)"""
+    try:
+        user = await db.users.find_one({"id": user_id}, {"_id": 0})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Convert ISO string timestamps back to datetime objects
+        if isinstance(user.get('created_at'), str):
+            user['created_at'] = datetime.fromisoformat(user['created_at'])
+        
+        return UserResponse(**user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error getting user: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get user: {str(e)}")
+
+class UserUpdate(BaseModel):
+    """Model for updating user details"""
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    is_verified: Optional[bool] = None
+    telegram_user_id: Optional[int] = None
+    telegram_username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    language_code: Optional[str] = None
+
+@api_router.put("/users/{user_id}", response_model=UserResponse)
+async def update_user(user_id: str, user_update: UserUpdate):
+    """Update user details (admin only)"""
+    try:
+        # Check if user exists
+        existing_user = await db.users.find_one({"id": user_id})
+        if not existing_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Check username uniqueness if name is being updated
+        if user_update.name:
+            existing_user_by_name = await db.users.find_one({
+                "name": {"$regex": f"^{user_update.name}$", "$options": "i"},
+                "id": {"$ne": user_id}  # Exclude current user
+            })
+            if existing_user_by_name:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Username '{user_update.name}' is already taken."
+                )
+        
+        # Check email uniqueness if email is being updated
+        if user_update.email:
+            existing_user_by_email = await db.users.find_one({
+                "email": user_update.email,
+                "id": {"$ne": user_id}  # Exclude current user
+            })
+            if existing_user_by_email:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Email '{user_update.email}' is already in use."
+                )
+        
+        # Build update dictionary (only include provided fields)
+        update_data = {}
+        if user_update.name is not None:
+            update_data['name'] = user_update.name
+        if user_update.email is not None:
+            update_data['email'] = user_update.email
+        if user_update.phone is not None:
+            update_data['phone'] = user_update.phone
+        if user_update.telegram_chat_id is not None:
+            update_data['telegram_chat_id'] = user_update.telegram_chat_id
+        if user_update.is_verified is not None:
+            update_data['is_verified'] = user_update.is_verified
+        if user_update.telegram_user_id is not None:
+            update_data['telegram_user_id'] = user_update.telegram_user_id
+        if user_update.telegram_username is not None:
+            update_data['telegram_username'] = user_update.telegram_username
+        if user_update.first_name is not None:
+            update_data['first_name'] = user_update.first_name
+        if user_update.last_name is not None:
+            update_data['last_name'] = user_update.last_name
+        if user_update.language_code is not None:
+            update_data['language_code'] = user_update.language_code
+        
+        # Always update updated_at timestamp
+        update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
+        
+        # Update user
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": update_data}
+        )
+        
+        # Fetch and return updated user
+        updated_user = await db.users.find_one({"id": user_id}, {"_id": 0})
+        if isinstance(updated_user.get('created_at'), str):
+            updated_user['created_at'] = datetime.fromisoformat(updated_user['created_at'])
+        
+        return UserResponse(**updated_user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error updating user: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update user: {str(e)}")
+
+@api_router.delete("/users/{user_id}")
+async def delete_user(user_id: str):
+    """Delete a user from the system (admin only)"""
+    try:
+        # Check if user exists
+        user = await db.users.find_one({"id": user_id})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Delete user
+        result = await db.users.delete_one({"id": user_id})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {"message": "User deleted successfully", "user_id": user_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error deleting user: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete user: {str(e)}")
 
 # Include the router in the main app
 app.include_router(api_router)

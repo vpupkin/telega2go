@@ -9,9 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Alert, AlertDescription } from './ui/alert';
 import { Progress } from './ui/progress';
 import { Separator } from './ui/separator';
-import { Send, Shield, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Send, Shield, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw, Edit, Trash2, Users, Save, X } from 'lucide-react';
 import { toast } from 'sonner';
 import axios from 'axios';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 
 const OTPDashboard = () => {
   const [otpData, setOtpData] = useState({
@@ -31,15 +33,39 @@ const OTPDashboard = () => {
     totalFailed: 0,
     rateLimitRemaining: 5
   });
+  const [users, setUsers] = useState([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState({ open: false, user: null });
 
   // API endpoints
   const OTP_GATEWAY_URL = process.env.REACT_APP_OTP_GATEWAY_URL || 'https://putana.date/otp';
-  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://putana.date/api';
+  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://putana.date:55552';
+  const API_BASE = BACKEND_URL.replace(/\/+$/, '').endsWith('/api') 
+    ? BACKEND_URL.replace(/\/+$/, '') 
+    : `${BACKEND_URL.replace(/\/+$/, '')}/api`;
 
-  // Fetch OTP history from backend
+  // ✅ Fetch all users from backend
+  const fetchUsers = async () => {
+    setIsLoadingUsers(true);
+    try {
+      const response = await axios.get(`${API_BASE}/users`);
+      if (response.data) {
+        setUsers(response.data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch users:', error);
+      toast.error('Failed to load users');
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  };
+
+  // ✅ Fetch OTP history from backend
   const fetchOtpHistory = async () => {
     try {
-      const response = await axios.get(`${BACKEND_URL}/otp-history`);
+      const response = await axios.get(`${API_BASE}/otp-history`);
       if (response.data && response.data.otp_history) {
         const formattedHistory = response.data.otp_history.map(entry => ({
           id: entry.message_id || Date.now(),
@@ -76,7 +102,7 @@ const OTPDashboard = () => {
 
     try {
       // Check Backend
-      const backendResponse = await axios.get(`${BACKEND_URL}/`);
+      const backendResponse = await axios.get(`${API_BASE}/`);
       setSystemStatus(prev => ({ ...prev, backend: 'healthy' }));
     } catch (error) {
       setSystemStatus(prev => ({ ...prev, backend: 'error' }));
@@ -142,13 +168,74 @@ const OTPDashboard = () => {
     setOtpData(prev => ({ ...prev, otp }));
   };
 
+  // ✅ Handle edit user
+  const handleEditUser = (user) => {
+    setEditingUser({ ...user });
+    setIsEditDialogOpen(true);
+  };
+
+  // ✅ Handle save user changes
+  const handleSaveUser = async () => {
+    if (!editingUser) return;
+    
+    try {
+      // Send only the fields that can be updated (exclude id, created_at)
+      const updateData = {
+        name: editingUser.name,
+        email: editingUser.email,
+        phone: editingUser.phone || null,
+        telegram_chat_id: editingUser.telegram_chat_id || null,
+        is_verified: editingUser.is_verified
+      };
+      
+      const response = await axios.put(`${API_BASE}/users/${editingUser.id}`, updateData);
+      toast.success('User updated successfully');
+      setIsEditDialogOpen(false);
+      setEditingUser(null);
+      fetchUsers(); // Refresh list
+    } catch (error) {
+      const errorMessage = error.response?.data?.detail || 'Failed to update user';
+      toast.error(errorMessage);
+    }
+  };
+
+  // ✅ Handle delete user
+  const handleDeleteUser = async () => {
+    if (!deleteConfirmDialog.user) return;
+    
+    try {
+      const response = await axios.delete(`${API_BASE}/users/${deleteConfirmDialog.user.id}`);
+      // Success - user deleted
+      toast.success('User deleted successfully');
+      setDeleteConfirmDialog({ open: false, user: null });
+      fetchUsers(); // Refresh list
+    } catch (error) {
+      // Handle 404 as "already deleted" (might have been deleted by another session)
+      if (error.response?.status === 404) {
+        const errorMessage = error.response?.data?.detail || 'User not found';
+        if (errorMessage.includes('not found')) {
+          toast.info('User already deleted or not found');
+          setDeleteConfirmDialog({ open: false, user: null });
+          fetchUsers(); // Refresh list anyway
+        } else {
+          toast.error(errorMessage);
+        }
+      } else {
+        const errorMessage = error.response?.data?.detail || 'Failed to delete user';
+        toast.error(errorMessage);
+      }
+    }
+  };
+
   // Load initial data
   useEffect(() => {
     checkSystemHealth();
     fetchOtpHistory();
+    fetchUsers();
     const interval = setInterval(() => {
       checkSystemHealth();
       fetchOtpHistory();
+      fetchUsers();
     }, 30000); // Check every 30 seconds
     return () => clearInterval(interval);
   }, []);
@@ -233,10 +320,11 @@ const OTPDashboard = () => {
 
         {/* Main Content */}
         <Tabs defaultValue="send" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="send">Send OTP</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
             <TabsTrigger value="stats">Statistics</TabsTrigger>
+            <TabsTrigger value="users">Users</TabsTrigger>
           </TabsList>
 
           {/* Send OTP Tab */}
@@ -428,7 +516,189 @@ const OTPDashboard = () => {
               </Card>
             </div>
           </TabsContent>
+
+          {/* ✅ Users Management Tab */}
+          <TabsContent value="users">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="h-5 w-5" />
+                      User Management
+                    </CardTitle>
+                    <CardDescription>
+                      Manage all registered users in the system
+                    </CardDescription>
+                  </div>
+                  <Button onClick={fetchUsers} variant="outline" size="sm" disabled={isLoadingUsers}>
+                    <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingUsers ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {isLoadingUsers ? (
+                  <div className="text-center py-8 text-gray-500">
+                    Loading users...
+                  </div>
+                ) : users.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    No users found
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name/Username</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Phone</TableHead>
+                          <TableHead>Telegram Chat ID</TableHead>
+                          <TableHead>Verified</TableHead>
+                          <TableHead>Created</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {users.map((user) => (
+                          <TableRow key={user.id}>
+                            <TableCell className="font-medium">{user.name}</TableCell>
+                            <TableCell>{user.email}</TableCell>
+                            <TableCell>{user.phone || 'N/A'}</TableCell>
+                            <TableCell className="font-mono text-xs">{user.telegram_chat_id}</TableCell>
+                            <TableCell>
+                              {user.is_verified ? (
+                                <Badge className="bg-green-100 text-green-800">Verified</Badge>
+                              ) : (
+                                <Badge className="bg-gray-100 text-gray-800">Not Verified</Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm text-gray-500">
+                              {new Date(user.created_at).toLocaleDateString()}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleEditUser(user)}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setDeleteConfirmDialog({ open: true, user })}
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
+
+        {/* ✅ Edit User Dialog */}
+        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit User</DialogTitle>
+              <DialogDescription>
+                Update user details. Leave fields empty to keep current values.
+              </DialogDescription>
+            </DialogHeader>
+            {editingUser && (
+              <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-name">Name/Username</Label>
+                    <Input
+                      id="edit-name"
+                      value={editingUser.name}
+                      onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-email">Email</Label>
+                    <Input
+                      id="edit-email"
+                      type="email"
+                      value={editingUser.email}
+                      onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-phone">Phone</Label>
+                    <Input
+                      id="edit-phone"
+                      value={editingUser.phone || ''}
+                      onChange={(e) => setEditingUser({ ...editingUser, phone: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-telegram-chat-id">Telegram Chat ID</Label>
+                    <Input
+                      id="edit-telegram-chat-id"
+                      value={editingUser.telegram_chat_id || ''}
+                      onChange={(e) => setEditingUser({ ...editingUser, telegram_chat_id: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="edit-is-verified"
+                    checked={editingUser.is_verified}
+                    onChange={(e) => setEditingUser({ ...editingUser, is_verified: e.target.checked })}
+                    className="h-4 w-4"
+                  />
+                  <Label htmlFor="edit-is-verified">Verified</Label>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+              <Button onClick={handleSaveUser}>
+                <Save className="h-4 w-4 mr-2" />
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ✅ Delete Confirmation Dialog */}
+        <Dialog open={deleteConfirmDialog.open} onOpenChange={(open) => setDeleteConfirmDialog({ open, user: null })}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete User</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete user <strong>{deleteConfirmDialog.user?.name}</strong>? 
+                This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteConfirmDialog({ open: false, user: null })}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={handleDeleteUser}>
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete User
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

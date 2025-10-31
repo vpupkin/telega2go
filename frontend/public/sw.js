@@ -29,41 +29,75 @@ self.addEventListener('install', (event) => {
 
 // Fetch event - serve from cache when offline
 self.addEventListener('fetch', (event) => {
+  // ✅ CRITICAL: Always bypass cache for API requests (network-only)
+  if (event.request.url.includes('/api/')) {
+    event.respondWith(
+      fetch(event.request)
+        .catch((error) => {
+          // If network fails, return error response instead of undefined
+          console.error('Service Worker: API request failed', error);
+          return new Response(
+            JSON.stringify({ error: 'Network request failed' }),
+            {
+              status: 503,
+              statusText: 'Service Unavailable',
+              headers: { 'Content-Type': 'application/json' }
+            }
+          );
+        })
+    );
+    return; // Don't proceed with cache logic for API requests
+  }
+  
+  // For non-API requests, use cache-first strategy
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
-        // Return cached version or fetch from network
+        // Return cached version if available
         if (response) {
           return response;
         }
         
-        // For API requests, try network first, then cache
-        if (event.request.url.includes('/api/')) {
-          return fetch(event.request)
-            .then((response) => {
-              // Cache successful API responses
-              if (response.status === 200) {
-                const responseClone = response.clone();
-                caches.open(CACHE_NAME).then((cache) => {
-                  cache.put(event.request, responseClone);
-                });
-              }
+        // Fetch from network for non-API requests
+        return fetch(event.request)
+          .then((response) => {
+            // Don't cache if response is not ok
+            if (!response || response.status !== 200 || response.type !== 'basic') {
               return response;
-            })
-            .catch(() => {
-              // Return cached API response if available
-              return caches.match(event.request);
+            }
+            
+            // Cache successful responses
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseClone);
             });
-        }
-        
-        // For other requests, fetch from network
-        return fetch(event.request);
+            
+            return response;
+          })
+          .catch((error) => {
+            console.error('Service Worker: Fetch failed', error);
+            // If both cache and network fail, show offline page for documents
+            if (event.request.destination === 'document') {
+              return caches.match('/');
+            }
+            // For other requests, return error response
+            return new Response('Network error', {
+              status: 503,
+              statusText: 'Service Unavailable'
+            });
+          });
       })
-      .catch(() => {
-        // If both cache and network fail, show offline page
-        if (event.request.destination === 'document') {
-          return caches.match('/');
-        }
+      .catch((error) => {
+        console.error('Service Worker: Cache match failed', error);
+        // Fallback: try to fetch from network
+        return fetch(event.request)
+          .catch(() => {
+            // Last resort: return offline page for documents
+            if (event.request.destination === 'document') {
+              return caches.match('/');
+            }
+            return new Response('Offline', { status: 503 });
+          });
       })
   );
 });
