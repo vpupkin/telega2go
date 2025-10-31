@@ -21,7 +21,7 @@ JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_HOURS = 24
 
 # OTP Gateway URL
-OTP_GATEWAY_URL = os.environ.get('OTP_GATEWAY_URL', 'http://localhost:5571')
+OTP_GATEWAY_URL = os.environ.get('OTP_GATEWAY_URL', 'http://localhost:55551')
 
 # Magic Link Configuration
 MAGIC_LINK_SECRET = os.environ.get('MAGIC_LINK_SECRET', 'your-magic-link-secret-change-in-production')

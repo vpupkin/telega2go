@@ -5,7 +5,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict, EmailStr, validator
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -29,8 +29,8 @@ JWT_EXPIRATION_HOURS = 24
 # Magic Link Configuration (KISS: Reuse same secret as JWT for simplicity)
 MAGIC_LINK_SECRET = os.environ.get('MAGIC_LINK_SECRET', JWT_SECRET)
 
-# OTP Gateway URL
-OTP_GATEWAY_URL = os.environ.get('OTP_GATEWAY_URL', 'http://localhost:5571')
+# OTP Gateway URL (✅ Correct port: 55551 from docker-compose.yml)
+OTP_GATEWAY_URL = os.environ.get('OTP_GATEWAY_URL', 'http://localhost:55551')
 
 # Create the main app without a prefix
 app = FastAPI()
