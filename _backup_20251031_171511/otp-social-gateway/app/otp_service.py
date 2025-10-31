@@ -1,0 +1,266 @@
+"""OTP delivery service using Telegram Bot API with auto-delete"""
+import asyncio
+import logging
+import hmac
+import hashlib
+import base64
+import qrcode
+import io
+from datetime import datetime, timezone, timedelta
+from typing import Dict, Tuple
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import TelegramError, RetryAfter, TimedOut
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class OTPService:
+    """Service for sending OTPs via Telegram with self-destruct functionality"""
+    
+    def __init__(self, bot_token: str):
+        """Initialize the OTP service with Telegram bot"""
+        self.bot = Bot(token=bot_token)
+        self._delivery_stats = {
+            "total_sent": 0,
+            "total_failed": 0,
+            "total_deleted": 0
+        }
+    
+    def _generate_magic_link(self, email: str, otp: str) -> str:
+        """Generate a secure magic link for OTP verification"""
+        # Create a token with email and OTP
+        token_data = f"{email}:{otp}:{datetime.now(timezone.utc).timestamp()}"
+        
+        # Create HMAC signature
+        signature = hmac.new(
+            settings.magic_link_secret.encode(),
+            token_data.encode(),
+            hashlib.sha256
+        ).digest()
+        
+        # Encode the token
+        token = base64.urlsafe_b64encode(
+            f"{token_data}:{base64.urlsafe_b64encode(signature).decode()}".encode()
+        ).decode()
+        
+        # Return the magic link
+        return f"{settings.magic_link_base_url}/verify-magic-link?token={token}"
+    
+    def _generate_qr_code(self, magic_link: str) -> bytes:
+        """Generate QR code for magic link"""
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(magic_link)
+        qr.make(fit=True)
+        
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        # Convert to bytes
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_bytes.seek(0)
+        
+        return img_bytes.getvalue()
+    
+    async def send_otp(
+        self, 
+        chat_id: str, 
+        otp: str, 
+        expire_seconds: int = 30,
+        email: str = None
+    ) -> Tuple[bool, Dict]:
+        """
+        Send OTP to Telegram user and schedule auto-delete
+        
+        Args:
+            chat_id: Telegram user chat ID
+            otp: The OTP code to send
+            expire_seconds: Seconds before message auto-deletes
+            
+        Returns:
+            Tuple of (success: bool, response_data: dict)
+        """
+        try:
+            # Generate magic link if email is provided
+            magic_link = ""
+            if email:
+                magic_link = self._generate_magic_link(email, otp)
+            
+            # Send QR code with OTP info if magic link is available
+            if magic_link:
+                # Always try to send QR code - no fallback to regular message
+                qr_code_bytes = self._generate_qr_code(magic_link)
+                # Format message with inline keyboard button
+                combined_message = (
+                    f"🔐 Your OTP is: <b>{otp}</b>\n\n"
+                    f"⏱ Expires in {expire_seconds} seconds.\n\n"
+                    f"📱 Scan this QR code with your phone camera for instant verification!\n\n"
+                    f"💡 Or tap the button below to verify instantly!\n\n"
+                    f"⚠️ This message will self-destruct."
+                )
+                
+                # Create inline keyboard with clickable button (now using public domain)
+                keyboard = [[InlineKeyboardButton("🔗 Click here to verify", url=magic_link)]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                message = await asyncio.wait_for(
+                    self.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=qr_code_bytes,
+                        caption=combined_message,
+                        parse_mode="HTML",
+                        reply_markup=reply_markup
+                    ),
+                    timeout=60.0
+                )
+            else:
+                # No magic link, send regular OTP message
+                message_text = settings.message_template.format(
+                    otp=otp,
+                    sec=expire_seconds
+                )
+                message = await self._send_with_retry(chat_id, message_text)
+            
+            sent_at = datetime.now(timezone.utc)
+            delete_at = sent_at + timedelta(seconds=expire_seconds)
+            
+            # Schedule auto-delete as background task (only if we have a message)
+            if message:
+                asyncio.create_task(
+                    self._auto_delete_message(chat_id, message.message_id, expire_seconds)
+                )
+            
+            self._delivery_stats["total_sent"] += 1
+            
+            logger.info(
+                "OTP sent successfully",
+                extra={
+                    "chat_id": chat_id,
+                    "message_id": message.message_id,
+                    "expire_seconds": expire_seconds,
+                    "sent_at": sent_at.isoformat()
+                }
+            )
+            
+            return True, {
+                "success": True,
+                "message_id": message.message_id,
+                "sent_at": sent_at.isoformat(),
+                "delete_at": delete_at.isoformat(),
+                "chat_id": chat_id
+            }
+            
+        except TelegramError as e:
+            self._delivery_stats["total_failed"] += 1
+            logger.error(
+                f"Failed to send OTP: {str(e)}",
+                extra={
+                    "chat_id": chat_id,
+                    "error_type": type(e).__name__
+                }
+            )
+            return False, {
+                "success": False,
+                "error": "Failed to send OTP",
+                "details": str(e)
+            }
+        except Exception as e:
+            self._delivery_stats["total_failed"] += 1
+            logger.error(
+                f"Unexpected error sending OTP: {str(e)}",
+                extra={
+                    "chat_id": chat_id,
+                    "error_type": type(e).__name__
+                }
+            )
+            return False, {
+                "success": False,
+                "error": "Internal server error",
+                "details": str(e)
+            }
+    
+    async def _send_with_retry(
+        self, 
+        chat_id: str, 
+        message_text: str, 
+        max_retries: int = 3
+    ):
+        """Send message with retry logic for transient failures"""
+        last_error = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                return await asyncio.wait_for(
+                    self.bot.send_message(
+                        chat_id=int(chat_id),
+                        text=message_text,
+                        parse_mode="HTML"
+                    ),
+                    timeout=60.0
+                )
+            except (TimedOut, RetryAfter) as e:
+                last_error = e
+                if attempt < max_retries:
+                    wait_time = e.retry_after if isinstance(e, RetryAfter) else 1
+                    logger.warning(f"Transient error, retrying in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                    continue
+            except TelegramError as e:
+                # Don't retry for non-transient errors
+                raise e
+        
+        raise last_error
+    
+    async def _auto_delete_message(
+        self, 
+        chat_id: str, 
+        message_id: int, 
+        delay_seconds: int
+    ):
+        """Auto-delete message after specified delay"""
+        try:
+            await asyncio.sleep(delay_seconds)
+            await self.bot.delete_message(
+                chat_id=int(chat_id),
+                message_id=message_id
+            )
+            self._delivery_stats["total_deleted"] += 1
+            logger.info(
+                "Message auto-deleted",
+                extra={
+                    "chat_id": chat_id,
+                    "message_id": message_id
+                }
+            )
+        except TelegramError as e:
+            logger.warning(
+                f"Failed to delete message: {str(e)}",
+                extra={
+                    "chat_id": chat_id,
+                    "message_id": message_id
+                }
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error deleting message: {str(e)}")
+    
+    async def verify_bot_token(self) -> bool:
+        """Verify that the bot token is valid"""
+        try:
+            bot_info = await asyncio.wait_for(self.bot.get_me(), timeout=10.0)
+            logger.info(f"Bot verified: @{bot_info.username} ({bot_info.first_name})")
+            return True
+        except asyncio.TimeoutError:
+            logger.warning("Bot token verification timed out, but continuing...")
+            return True  # Continue anyway
+        except TelegramError as e:
+            logger.error(f"Invalid bot token: {str(e)}")
+            return False
+    
+    def get_stats(self) -> Dict:
+        """Get delivery statistics"""
+        return self._delivery_stats.copy()

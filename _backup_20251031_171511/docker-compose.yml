@@ -1,0 +1,133 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: telega2go-mongodb
+    restart: unless-stopped
+    ports:
+      - "55554:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: telega2go
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - telega2go-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # OTP Social Gateway
+  otp-gateway:
+    build:
+      context: ./otp-social-gateway
+      dockerfile: Dockerfile
+    container_name: telega2go-otp-gateway
+    restart: unless-stopped
+    ports:
+      - "55551:55155"
+    environment:
+      - TELEGRAM_BOT_TOKEN=8021082793:AAE56NV3KZ76qkRGrGv9kKk3Wq17n_exvzQ
+      - DEFAULT_EXPIRE_SECONDS=${DEFAULT_EXPIRE_SECONDS:-30}
+      - RATE_LIMIT_PER_USER=${RATE_LIMIT_PER_USER:-5}
+      - PORT=55155
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MONGO_URL=mongodb://admin:password123@mongodb:27017/telega2go?authSource=admin
+      - DB_NAME=telega2go
+      - BACKEND_URL=http://backend:8000
+    networks:
+      - telega2go-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:55155/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: telega2go-backend
+    restart: unless-stopped
+    ports:
+      - "55552:8000"
+    environment:
+      - MONGO_URL=mongodb://admin:password123@mongodb:27017/telega2go?authSource=admin
+      - DB_NAME=telega2go
+      - CORS_ORIGINS=http://localhost:55553,http://localhost:80,https://putana.date
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      - OTP_GATEWAY_URL=https://putana.date/otp
+    networks:
+      - telega2go-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  # Frontend React App
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: telega2go-frontend
+    restart: unless-stopped
+    ports:
+      - "55553:80"
+    environment:
+      - REACT_APP_BACKEND_URL=https://putana.date:55552
+      - REACT_APP_OTP_GATEWAY_URL=https://putana.date:55551
+    networks:
+      - telega2go-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      - backend
+      - otp-gateway
+
+  # Nginx Reverse Proxy (Optional - for production)
+  nginx:
+    image: nginx:alpine
+    container_name: telega2go-nginx
+    restart: unless-stopped
+    ports:
+      - "5575:80"
+      - "5576:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    networks:
+      - telega2go-network
+    depends_on:
+      - frontend
+      - backend
+      - otp-gateway
+    profiles:
+      - production
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  telega2go-network:
+    driver: bridge

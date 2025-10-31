@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
-from jose import jwt
+import jwt
 import httpx
 
 
@@ -56,7 +56,7 @@ class User(BaseModel):
     
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
-    email: str  # ✅ Changed from EmailStr to str to allow Telegram's @telegram.local emails
+    email: EmailStr
     phone: str
     telegram_chat_id: str
     is_verified: bool = False
@@ -73,7 +73,6 @@ class TelegramUserRegistration(BaseModel):
     """✅ PENALTY4: Registration without OTP - user already validated from Telegram"""
     urr_id: str  # Unique Registration Request ID
     password: str  # Only editable field
-    username: Optional[str] = None  # Optional: if user changed username from default
     # All other fields come from Telegram data (stored with URR_ID)
 
 class OTPVerification(BaseModel):
@@ -123,7 +122,7 @@ def verify_token(token: str):
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired")
-    except jwt.PyJWTError:
+    except jwt.JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 # Magic Link Functions (KISS: Simple token creation/verification)
@@ -510,19 +509,8 @@ async def register_telegram_user(registration: TelegramUserRegistration):
         telegram_data = registration_request.get('telegram_data', {})
         telegram_user_id = registration_request.get('telegram_user_id')
         
-        # ✅ Use provided username or default to telegram_user_id
-        username = registration.username if registration.username else str(telegram_user_id)
-        
-        # ✅ Check username uniqueness (CRITICAL)
-        existing_user_by_name = await db.users.find_one({
-            "name": {"$regex": f"^{username}$", "$options": "i"}
-        })
-        if existing_user_by_name:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Username '{username}' is already taken. Please choose a different username."
-            )
-        
+        # Default username to telegram_user_id
+        username = str(telegram_user_id)
         email = registration_request.get('email') or telegram_data.get('email') or f"user{telegram_user_id}@telegram.local"
         phone = registration_request.get('phone') or telegram_data.get('phone') or ""
         
@@ -536,18 +524,17 @@ async def register_telegram_user(registration: TelegramUserRegistration):
         if existing_telegram_user:
             raise HTTPException(status_code=400, detail="This Telegram account is already registered")
         
-        # ✅ Create user_doc directly to bypass Pydantic validation for Telegram emails
-        # (Telegram may provide invalid emails like user123@telegram.local)
-        user_doc = {
-            "id": str(uuid.uuid4()),
-            "name": username,  # Default to telegram_user_id
-            "email": email,  # May be invalid format (e.g., @telegram.local) - OK for Telegram users
-            "phone": phone,
-            "telegram_chat_id": str(telegram_user_id),
-            "is_verified": True,  # ✅ Already validated via Telegram
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc)
-        }
+        # Create user immediately (no validations - all from Telegram)
+        user = User(
+            name=username,  # Default to telegram_user_id
+            email=email,
+            phone=phone,
+            telegram_chat_id=str(telegram_user_id),
+            is_verified=True  # ✅ Already validated via Telegram
+        )
+        
+        # Save user with ALL Telegram data (no validations!)
+        user_doc = user.model_dump()
         user_doc['telegram_user_id'] = telegram_user_id
         user_doc['telegram_username'] = registration_request.get('telegram_username')
         user_doc['first_name'] = registration_request.get('first_name')
@@ -565,11 +552,8 @@ async def register_telegram_user(registration: TelegramUserRegistration):
         user_doc['nationality'] = telegram_data.get('nationality')  # If available
         user_doc['supported_languages'] = [registration_request.get('language_code', 'en')]  # Array
         
-        # ✅ Convert datetime objects to ISO format strings for MongoDB
-        if isinstance(user_doc['created_at'], datetime):
-            user_doc['created_at'] = user_doc['created_at'].isoformat()
-        if isinstance(user_doc['updated_at'], datetime):
-            user_doc['updated_at'] = user_doc['updated_at'].isoformat()
+        user_doc['created_at'] = user_doc['created_at'].isoformat()
+        user_doc['updated_at'] = user_doc['updated_at'].isoformat()
         
         await db.users.insert_one(user_doc)
         
@@ -580,18 +564,18 @@ async def register_telegram_user(registration: TelegramUserRegistration):
         )
         
         # Create JWT token
-        token_data = {"sub": user_doc["id"], "email": user_doc["email"]}
+        token_data = {"sub": user.id, "email": user.email}
         access_token = create_access_token(token_data)
         
         # Return user data and token
         user_response = UserResponse(
-            id=user_doc["id"],
-            name=user_doc["name"],
-            email=user_doc["email"],
-            phone=user_doc["phone"],
-            telegram_chat_id=user_doc["telegram_chat_id"],
-            is_verified=user_doc["is_verified"],
-            created_at=user_doc["created_at"]
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            phone=user.phone,
+            telegram_chat_id=user.telegram_chat_id,
+            is_verified=user.is_verified,
+            created_at=user.created_at
         )
         
         return TokenResponse(

@@ -15,11 +15,7 @@ const UserRegistration = () => {
   
   const [step, setStep] = useState(1); // 1: Registration Form, 2: OTP Verification, 3: Success
   const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://putana.date:55552';
-  // ✅ Fix: Normalize URL to avoid duplicate /api/
-  const normalizedBackendUrl = BACKEND_URL.replace(/\/+$/, ''); // Remove trailing slashes
-  const API_BASE = normalizedBackendUrl.endsWith('/api') 
-    ? normalizedBackendUrl 
-    : `${normalizedBackendUrl}/api`;
+  const API_BASE = `${BACKEND_URL}/api`;
   
   const [formData, setFormData] = useState({
     urr_id: urrIdParam || '',
@@ -75,12 +71,12 @@ const UserRegistration = () => {
       const data = await response.json();
       setTelegramData(data);
       
-      // ✅ PENALTY4: Pre-fill ALL fields from Telegram data
+      // ✅ PENALTY4: Pre-fill ALL fields from Telegram data (read-only)
       setFormData(prev => ({
         ...prev,
         urr_id: data.urr_id || urrId,
         telegram_user_id: data.telegram_user_id?.toString() || '',
-        username: data.telegram_username || data.default_username || data.suggested_name || data.telegram_user_id?.toString() || '', // ✅ Use Telegram username first
+        username: data.default_username || data.suggested_name || data.telegram_user_id?.toString() || '',
         email: data.email || '',
         phone: data.phone || '',
         first_name: data.first_name || '',
@@ -136,48 +132,13 @@ const UserRegistration = () => {
     }
   };
 
-  // ✅ Generate password: double consonant + vowel + 3 random numbers
-  // Pattern examples: Cafebabe123, Sukiroma234, Zedagowi710, Kitanijo600, Nigodala711
-  // Pattern: CCVCVCVC + 3 numbers (double consonant + vowel, repeated 4 times)
-  const generatePassword = () => {
-    const consonants = 'bcdfghjklmnpqrstvwxyz';
-    const vowels = 'aeiou';
-    const getRandom = (str) => str[Math.floor(Math.random() * str.length)];
-    
-    // Generate 4 groups: CC-VC-CV-CV (e.g., Ca-fe-ba-be = Cafebabe)
-    const group1 = getRandom(consonants) + getRandom(consonants) + getRandom(vowels); // e.g., "ca"
-    const group2 = getRandom(consonants) + getRandom(vowels); // e.g., "fe"
-    const group3 = getRandom(consonants) + getRandom(vowels); // e.g., "ba"
-    const group4 = getRandom(consonants) + getRandom(vowels); // e.g., "be"
-    const numbers = String(Math.floor(Math.random() * 900) + 100); // 3 random digits
-    
-    // Combine: Capitalize first letter + rest + numbers
-    const word = group1 + group2 + group3 + group4;
-    const generated = word.charAt(0).toUpperCase() + word.slice(1) + numbers;
-    
-    setFormData(prev => ({
-      ...prev,
-      password: generated
-    }));
-    setError(''); // Clear error
-  };
-
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     
-    // ✅ PENALTY4: Always allow editing password and username, allow editing empty fields (email, phone)
-    if (urrIdParam && name !== 'password' && name !== 'username' && name !== 'email' && name !== 'phone') {
-      // Only allow editing if field is empty (for validation purposes)
-      const currentValue = formData[name];
-      if (currentValue && currentValue !== 'N/A' && currentValue.trim() !== '') {
-        // Field has value - don't allow editing (read-only from Telegram)
-        return;
-      }
-    }
-    
-    // ✅ Allow editing email and phone if empty (even for Telegram users)
-    if (urrIdParam && (name === 'email' || name === 'phone')) {
-      // Always allow editing email and phone (they may be empty)
+    // ✅ PENALTY4: Only allow password editing if URR_ID present
+    if (urrIdParam && name !== 'password') {
+      // Ignore changes to read-only fields
+      return;
     }
     
     setFormData(prev => ({
@@ -214,14 +175,10 @@ const UserRegistration = () => {
   const handleRegistration = async (e) => {
     e.preventDefault();
 
-    // ✅ PENALTY4: Only validate password and username if URR_ID present (Telegram registration)
+    // ✅ PENALTY4: Only validate password if URR_ID present (Telegram registration)
     if (urrIdParam) {
       if (!formData.password || formData.password.trim().length < 6) {
         setError('Password is required (minimum 6 characters)');
-        return;
-      }
-      if (!formData.username || formData.username.trim().length < 1) {
-        setError('Username on Site is required');
         return;
       }
     } else {
@@ -233,7 +190,7 @@ const UserRegistration = () => {
     setError('');
 
     try {
-      // ✅ PENALTY4: Telegram registration - send URR_ID, password, and username (if changed)
+      // ✅ PENALTY4: Telegram registration - only send URR_ID and password
       if (urrIdParam) {
         const response = await fetch(`${API_BASE}/register-telegram`, {
           method: 'POST',
@@ -242,8 +199,7 @@ const UserRegistration = () => {
           },
           body: JSON.stringify({
             urr_id: formData.urr_id,
-            password: formData.password,
-            username: formData.username // ✅ Send username for uniqueness validation
+            password: formData.password
           }),
         });
 
@@ -431,26 +387,20 @@ const UserRegistration = () => {
                   </div>
                   
                   <div>
-                    <Label className="text-xs font-semibold text-gray-700">Email Address {!formData.email && '(Editable)'}</Label>
+                    <Label className="text-xs font-semibold text-gray-700">Email Address</Label>
                     <Input
-                      name="email"
-                      value={formData.email || ''}
-                      onChange={handleInputChange}
-                      placeholder={formData.email ? '' : 'Enter email (if not provided by Telegram)'}
-                      readOnly={!!formData.email && formData.email !== ''}
-                      className={formData.email ? "bg-gray-100 cursor-not-allowed" : "bg-white"}
+                      value={formData.email || 'N/A'}
+                      readOnly
+                      className="bg-gray-100 cursor-not-allowed"
                     />
                   </div>
                   
                   <div>
-                    <Label className="text-xs font-semibold text-gray-700">Phone Number {!formData.phone && '(Editable)'}</Label>
+                    <Label className="text-xs font-semibold text-gray-700">Phone Number</Label>
                     <Input
-                      name="phone"
-                      value={formData.phone || ''}
-                      onChange={handleInputChange}
-                      placeholder={formData.phone ? '' : 'Enter phone (if not provided by Telegram)'}
-                      readOnly={!!formData.phone && formData.phone !== ''}
-                      className={formData.phone ? "bg-gray-100 cursor-not-allowed" : "bg-white"}
+                      value={formData.phone || 'N/A'}
+                      readOnly
+                      className="bg-gray-100 cursor-not-allowed"
                     />
                   </div>
                   
@@ -566,68 +516,27 @@ const UserRegistration = () => {
                 </div>
               </div>
 
-            </>
-          )}
-
-          {/* ✅ PENALTY4: Username on Site (unique user ID) - editable for validation */}
-          {urrIdParam && (
-            <div className="space-y-2 p-4 bg-green-50 rounded-lg border-2 border-green-300">
-              <Label htmlFor="username" className="text-base font-bold text-green-900">
-                👤 Username on Site (Unique User ID)
-              </Label>
-              <Input
-                id="username"
-                name="username"
-                type="text"
-                placeholder="Your unique username (will be validated)"
-                value={formData.username}
-                onChange={handleInputChange}
-                required
-                className={`bg-white ${!nameAvailable && nameMessage ? 'border-red-500 bg-red-50' : ''}`}
-                disabled={loadingTelegramData}
-              />
-              {!nameAvailable && nameMessage && (
-                <p className="text-xs text-red-600 mt-1">{nameMessage}</p>
-              )}
-              <p className="text-xs text-gray-600 mt-1">
-                This will be your unique identifier on the site. Must be unique across all users.
-              </p>
-            </div>
-          )}
-
-          {/* ✅ PENALTY4: Password field - ALWAYS visible when URR_ID present (even if telegramData still loading) */}
-          {urrIdParam && (
-            <div className="space-y-2 p-4 bg-yellow-50 rounded-lg border-2 border-yellow-300">
-              <div className="flex items-center justify-between mb-2">
+              {/* ✅ PENALTY4: Only Password is editable */}
+              <div className="space-y-2 p-4 bg-yellow-50 rounded-lg border-2 border-yellow-300">
                 <Label htmlFor="password" className="text-base font-bold text-yellow-900">
                   🔐 Set Your Password (Required)
                 </Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={generatePassword}
-                  className="text-xs"
-                >
-                  🎲 Generate Password
-                </Button>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  placeholder="Enter your password (min 6 characters)"
+                  value={formData.password}
+                  onChange={handleInputChange}
+                  required
+                  className="bg-white"
+                  minLength={6}
+                />
+                <p className="text-xs text-gray-600 mt-1">
+                  ⚠️ This is the only field you can change. All other data comes from your Telegram profile.
+                </p>
               </div>
-              <Input
-                id="password"
-                name="password"
-                type="text"
-                placeholder="Enter your password (min 6 characters) or use generator"
-                value={formData.password}
-                onChange={handleInputChange}
-                required
-                className="bg-white font-mono"
-                minLength={6}
-                disabled={loadingTelegramData}
-              />
-              <p className="text-xs text-gray-600 mt-1">
-                ⚠️ This is the only field you can change. All other data comes from your Telegram profile.
-              </p>
-            </div>
+            </>
           )}
 
           {/* Regular registration form (when no URR_ID) */}
@@ -651,19 +560,16 @@ const UserRegistration = () => {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="username">Username on Site (Unique User ID)</Label>
+                <Label htmlFor="username">Username/Login ID</Label>
                 <Input
                   id="username"
                   name="username"
                   type="text"
-                  placeholder="Choose your unique username (will be validated for uniqueness)"
+                  placeholder="Choose your unique username"
                   value={formData.username}
                   onChange={handleInputChange}
                   required
                 />
-                <p className="text-xs text-gray-600">
-                  This will be your unique identifier. Must be unique across all users.
-                </p>
               </div>
 
               <div className="space-y-2">
@@ -694,7 +600,63 @@ const UserRegistration = () => {
             </>
           )}
 
-          {/* ✅ Telegram-specific fields removed - all data comes from Telegram */}
+          {/* Only show Telegram fields for non-Telegram registrations */}
+          {!telegramUserIdParam && (
+          <div className="space-y-3">
+            <div className="flex items-center space-x-4">
+              <Button
+                type="button"
+                variant={useUsername ? "default" : "outline"}
+                size="sm"
+                onClick={() => setUseUsername(true)}
+              >
+                @username
+              </Button>
+              <Button
+                type="button"
+                variant={!useUsername ? "default" : "outline"}
+                size="sm"
+                onClick={() => setUseUsername(false)}
+              >
+                Chat ID
+              </Button>
+            </div>
+            
+            {useUsername ? (
+              <div className="space-y-2">
+                <Label htmlFor="telegram_username">Telegram Username</Label>
+                <Input
+                  id="telegram_username"
+                  name="telegram_username"
+                  type="text"
+                  placeholder="@yourusername"
+                  value={formData.telegram_username}
+                  onChange={handleInputChange}
+                  required
+                />
+                <p className="text-xs text-green-600">
+                  ✨ Super easy! Just enter your @username (e.g., @john_doe)
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="telegram_chat_id">Telegram Chat ID</Label>
+                <Input
+                  id="telegram_chat_id"
+                  name="telegram_chat_id"
+                  type="text"
+                  placeholder="Your Telegram Chat ID"
+                  value={formData.telegram_chat_id}
+                  onChange={handleInputChange}
+                  required
+                />
+                <p className="text-xs text-gray-500">
+                  Get your Chat ID from @userinfobot on Telegram
+                </p>
+              </div>
+            )}
+          </div>
+          )}
 
           {error && (
             <Alert variant="destructive">
