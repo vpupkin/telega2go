@@ -1,5 +1,24 @@
 # TECHNICAL DOCUMENTATION - OTP Social Gateway
 
+## 📚 **DOCUMENTATION INDEX**
+
+### **Setup & Configuration**
+- **[Telegram Inline Query Menu Setup](./TELEGRAM_INLINE_QUERY_MENU_SETUP.md)** - Complete guide for enabling and using inline query menu
+- **[Development Rules](./A_DEVELOPMENT_RULES.md)** - Mandatory development workflow and rules
+- **[Docker-Only Setup](./A_DOCKER_ONLY_SETUP.md)** - Docker deployment guide
+
+### **Features**
+- **[Funny Telegram Bot Commands](./FUNNY_TELEGRAM_BOT_COMMANDS_v2.8.0.md)** - Bot entertainment commands
+- **[PWA User Registration System](./A_PWA_USER_REGISTRATION_SYSTEM.md)** - Registration system overview
+- **[Magic Link Authentication](./MAGIC_LINK_AUTHENTICATION_v2.1.0.md)** - Magic link implementation
+
+### **Telegram Bot Features**
+- **[Inline Query Menu](./TELEGRAM_INLINE_QUERY_MENU_SETUP.md)** - Interactive menu via @bot_username
+- **[Bot Commands](./FUNNY_TELEGRAM_BOT_COMMANDS_v2.8.0.md)** - /start, /help, /joke, etc.
+- **[OTP Delivery](./OTP_QR_CODE_FIX_v2.6.0.md)** - QR code and OTP sending
+
+---
+
 ## 🏗️ **SYSTEM ARCHITECTURE**
 
 ### **Microservices Architecture**
@@ -79,11 +98,12 @@ telega2go/
 
 ## 🔌 **API ENDPOINTS**
 
-### **OTP Gateway** (Port 5571)
+### **OTP Gateway** (Port 55551)
 ```
 GET  /health          - Health check
 GET  /                - Service info
 POST /send-otp        - Send OTP via Telegram
+POST /webhook         - Telegram webhook (commands, inline queries, callbacks)
 GET  /metrics         - Prometheus metrics
 ```
 

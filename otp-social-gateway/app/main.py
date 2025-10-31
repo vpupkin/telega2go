@@ -218,13 +218,13 @@ async def telegram_webhook(request: Request):
     
     This endpoint receives updates from Telegram when users:
     - Send commands to the bot (/start, /help, etc.)
-    - Mention the bot with @telego (inline queries)
+    - Mention the bot with @taxoin_bot (inline queries)
     - Click buttons in messages (callback queries)
     """
     try:
         data = await request.json()
         
-        # Handle inline queries (when @telego is typed)
+        # Handle inline queries (when @taxoin_bot is typed)
         if "inline_query" in data:
             inline_query = data["inline_query"]
             inline_query_id = inline_query["id"]

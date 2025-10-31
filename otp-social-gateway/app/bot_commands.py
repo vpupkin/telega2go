@@ -1,9 +1,12 @@
 """Funny Telegram Bot Commands for OTP Social Gateway"""
 import random
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Dict, List
 import httpx
+
+logger = logging.getLogger(__name__)
 
 class FunnyBotCommands:
     """Collection of funny and useful Telegram bot commands"""
@@ -216,7 +219,7 @@ Try one of these:
         return await self.send_message(chat_id, message)
     
     async def handle_inline_query(self, inline_query_id: str, query: str, user_id: str) -> bool:
-        """Handle inline queries when @telego is mentioned in any chat"""
+        """Handle inline queries when @taxoin_bot (or any bot username) is mentioned in any chat"""
         try:
             # Define menu actions with emojis
             menu_actions = [
@@ -268,8 +271,10 @@ Try one of these:
                     "id": action["id"],
                     "title": action["title"],
                     "description": action["description"],
-                    "message_text": action["initial_message"],
-                    "parse_mode": "HTML",
+                    "input_message_content": {
+                        "message_text": action["initial_message"],
+                        "parse_mode": "HTML"
+                    },
                     "reply_markup": {
                         "inline_keyboard": keyboard
                     }
@@ -286,10 +291,18 @@ Try one of these:
                         "cache_time": 1
                     }
                 )
+                
+                # Log error details for debugging
+                if response.status_code != 200:
+                    error_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                    print(f"Telegram API error ({response.status_code}): {error_data}")
+                    logger.error(f"Inline query answer failed: {response.status_code} - {error_data}")
+                
                 return response.status_code == 200
                 
         except Exception as e:
             print(f"Failed to handle inline query: {e}")
+            logger.error(f"Inline query exception: {e}", exc_info=True)
             return False
     
     async def handle_callback_query(self, callback_query_id: str, chat_id: str, message_id: int, callback_data: str) -> bool:

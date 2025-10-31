@@ -35,6 +35,8 @@
 
 ### 5. **SINGLE DOCKER STARTUP METHOD - MANDATORY**
 - ✅ **ONLY** use `./start.sh` to start services
+- ✅ **ALWAYS** prefer `./start.sh` for all Docker operations when possible
+- ✅ **ALWAYS** use `./start.sh` for: rebuilding, restarting, health checks, backups, rollbacks
 - ❌ **NEVER** use `docker-compose` directly
 - ❌ **NEVER** use `./docker-simple.sh` or other Docker methods
 - ❌ **NEVER** use individual `docker run` commands
@@ -43,7 +45,25 @@
 - ✅ **ALWAYS** use the single, consistent Docker management approach
 - 🚨 **VIOLATION**: Using any other Docker method is a CRITICAL RULE VIOLATION
 
-### 6. **MANDATORY TAGGING RULE**
+**start.sh Usage:**
+- `./start.sh` - Quick start (rebuild OTP Gateway and restart)
+- `./start.sh full` - Full deployment with backup
+- `./start.sh full test` - Full deployment with tests
+- `./start.sh test` - Run tests only
+- `./start.sh backup` - Create backup
+- `./start.sh rollback` - Rollback to previous backup
+- `./start.sh health` - Check service health
+- `./start.sh help` - Show all commands
+
+### 6. **NO AUTOMATIC GIT PUSH - MANDATORY**
+- ❌ **NEVER** push to remote without explicit user request
+- ❌ **NEVER** assume pushing is needed after commit
+- ✅ **ALWAYS** commit changes when requested
+- ✅ **ALWAYS** wait for user to explicitly ask for push
+- ✅ **ALWAYS** inform user that changes are committed and ready to push
+- 🚨 **VIOLATION**: Pushing without explicit user request is a CRITICAL RULE VIOLATION
+
+### 7. **MANDATORY TAGGING RULE**
 - ✅ **ALWAYS** create a tag when asked to tag the state of development
 - ✅ **ALWAYS** use sequential numbering (never less than previous tag)
 - ✅ **ALWAYS** include keywords describing the committed changes
@@ -58,16 +78,19 @@
 - `v3-add-magic-link-authentication`
 - `v4-pwa-registration-system`
 
-### 7. **DEVELOPMENT WORKFLOW**
+### 8. **DEVELOPMENT WORKFLOW**
 ```
 1. Identify issue/problem
 2. Propose solution (ask for approval)
 3. Implement change (KISS principle)
-4. Test thoroughly
-5. Run pre-commit checks
-6. Ask for commit approval
-7. Commit changes
-8. Create tag with sequential number + keywords (if requested)
+4. Test thoroughly (use ./start.sh test if needed)
+5. Rebuild/restart services using ./start.sh
+6. Run pre-commit checks
+7. Ask for commit approval
+8. Commit changes
+9. Inform user that changes are committed (DO NOT push automatically)
+10. Wait for user to explicitly request push
+11. Create tag with sequential number + keywords (if requested)
 ```
 
 ## 🛠️ **CURRENT SITUATION**
@@ -96,8 +119,13 @@ I understand and will follow these rules:
 - ✅ No commits without full testing
 - ✅ Always run pre-commit checks
 - ✅ Always ask before committing
-- ✅ **ONLY use `./start.sh` for Docker operations**
+- ✅ **ONLY use `./start.sh` for Docker operations - MANDATORY**
+- ✅ **ALWAYS prefer `./start.sh` for all Docker operations when possible**
+- ✅ **ALWAYS use `./start.sh` for rebuilding, restarting, health checks, backups, rollbacks**
 - ❌ **NEVER use any other Docker method**
+- ✅ **ALWAYS commit changes when requested**
+- ❌ **NEVER push to remote without explicit user request**
+- ✅ **ALWAYS wait for user to explicitly ask for push**
 - ✅ **ALWAYS create tags when requested with sequential numbering + keywords**
 - ❌ **NEVER skip tagging or use lower numbers than previous tags**
 - ✅ **ALWAYS test all previous tests + new feature tests**

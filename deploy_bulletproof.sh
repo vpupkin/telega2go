@@ -41,8 +41,13 @@ validate_environment() {
     
     # Check required tools
     command -v docker >/dev/null 2>&1 || { log_error "Docker is required but not installed."; exit 1; }
-    command -v docker-compose >/dev/null 2>&1 || command -v docker >/dev/null 2>&1 || { log_error "Docker Compose is required but not installed."; exit 1; }
     command -v python3 >/dev/null 2>&1 || { log_error "Python3 is required but not installed."; exit 1; }
+    
+    # Check if start.sh exists (unified script)
+    if [ ! -f "./start.sh" ]; then
+        log_error "start.sh not found. This script requires the unified start.sh."
+        exit 1
+    fi
     
     # Check if we're in the right directory
     if [ ! -f "docker-compose.yml" ]; then
@@ -132,14 +137,11 @@ run_comprehensive_tests() {
 validate_docker_build() {
     log "🐳 Validating Docker build..."
     
-    # Clean up any existing containers
-    log "Cleaning up existing containers..."
-    docker-compose down --remove-orphans 2>/dev/null || true
-    
-    # Build all services
-    log "Building all services..."
-    if ! docker-compose build --no-cache; then
-        log_error "Docker build failed"
+    # Use unified start.sh for build validation
+    log "Validating via start.sh..."
+    # Note: Actual build happens in start.sh, this is just validation check
+    if ! command -v docker &> /dev/null; then
+        log_error "Docker not available"
         return 1
     fi
     
@@ -150,21 +152,10 @@ validate_docker_build() {
 deploy_services() {
     log "🚀 Deploying services..."
     
-    # Start services
-    log "Starting all services..."
-    if ! docker-compose up -d; then
-        log_error "Failed to start services"
-        return 1
-    fi
-    
-    # Wait for services to be ready
-    log "Waiting for services to be ready..."
-    sleep 10
-    
-    # Health check
-    log "Performing health checks..."
-    if ! ./start.sh; then
-        log_error "Health checks failed"
+    # Use unified start.sh script for deployment
+    log "Using unified start.sh for service deployment..."
+    if ! ./start.sh full test; then
+        log_error "Service deployment failed"
         return 1
     fi
     
@@ -175,11 +166,11 @@ deploy_services() {
 validate_deployment() {
     log "🔍 Validating deployment..."
     
-    # Test all endpoints
+    # Test all endpoints (corrected ports)
     endpoints=(
-        "http://localhost:5572/api/"
-        "http://localhost:5571/health"
-        "http://localhost:5573/"
+        "http://localhost:55552/api/"
+        "http://localhost:55551/health"
+        "http://localhost:55553/"
     )
     
     for endpoint in "${endpoints[@]}"; do
@@ -223,13 +214,10 @@ create_backup() {
 rollback() {
     log "🔄 Rolling back deployment..."
     
-    # Stop current services
-    docker-compose down
-    
-    # Restore from backup if available
-    if [ -d "$BACKUP_DIR" ]; then
-        log "Restoring from backup..."
-        # Restore logic would go here
+    # Use unified start.sh for rollback
+    if ! ./start.sh rollback; then
+        log_error "Rollback via start.sh failed"
+        return 1
     fi
     
     log_warning "Rollback completed"
@@ -301,12 +289,12 @@ deploy() {
     log_success "⏱️  Total deployment time: ${duration} seconds"
     log_success "🚀 All services are running and validated"
     
-    # Display service URLs
+    # Display service URLs (corrected ports)
     log "📋 Service URLs:"
-    log "  Frontend:     http://localhost:5573"
-    log "  Backend API:  http://localhost:5572/api/"
-    log "  OTP Gateway:  http://localhost:5571"
-    log "  MongoDB:      localhost:5574"
+    log "  Frontend:     http://localhost:55553"
+    log "  Backend API:  http://localhost:55552/api/"
+    log "  OTP Gateway:  http://localhost:55551/health"
+    log "  MongoDB:      localhost:55554"
 }
 
 # Error handling
