@@ -328,6 +328,13 @@ class FunnyBotCommands:
                     "dice_quality_ok": "🤷‍♂️ Could be worse!"
                 },
                 "menu": {
+                    "welcomeBack": {
+                        "title": "👋 Welcome Back, {name}!",
+                        "description": "Continue to your account",
+                        "button": "👋 Welcome Back",
+                        "initial": "👋 <b>Welcome Back, {name}!</b>\n\nGreat to see you again! Click the button to access your account:",
+                        "response": "👋 <b>Welcome Back, {name}!</b>\n\nYour account is ready. Click the button below to access your dashboard."
+                    },
                     "joinToMe": {
                         "title": "👥 Join To Me",
                         "description": "Connect and join the community",
@@ -359,6 +366,43 @@ class FunnyBotCommands:
                 }
             },
             "ru": {
+                "menu": {
+                    "welcomeBack": {
+                        "title": "👋 С возвращением, {name}!",
+                        "description": "Перейти в ваш аккаунт",
+                        "button": "👋 Вернуться",
+                        "initial": "👋 <b>С возвращением, {name}!</b>\n\nРады видеть вас снова! Нажмите кнопку для доступа к аккаунту:",
+                        "response": "👋 <b>С возвращением, {name}!</b>\n\nВаш аккаунт готов. Нажмите кнопку ниже для доступа к панели управления."
+                    },
+                    "joinToMe": {
+                        "title": "👥 Присоединиться",
+                        "description": "Подключиться и присоединиться к сообществу",
+                        "button": "👥 Присоединиться",
+                        "initial": "👥 <b>Присоединиться</b>\n\nВыберите действие:",
+                        "response": "👥 <b>Присоединиться</b>\n\n[ЗАГЛУШКА] Эта функция позволит вам присоединиться к сообществу или подключиться к другим пользователям.\n\n<i>Скоро будет полностью реализовано!</i>"
+                    },
+                    "explainWhatIsThis": {
+                        "title": "📖 Что Это",
+                        "description": "Узнайте о Telega2Go и его функциях",
+                        "button": "📖 Объяснить",
+                        "initial": "📖 <b>Что Это</b>\n\nВыберите действие:",
+                        "response": "📖 <b>Что Это</b>\n\n[ЗАГЛУШКА] Telega2Go — это безопасная система доставки OTP с интеграцией Telegram. Этот бот помогает вам:\n\n🔐 Безопасная доставка OTP\n📱 Проверка QR-кода\n🔒 Самоудаляющиеся сообщения\n🎭 Веселые интерактивные команды\n\n<i>Больше деталей скоро!</i>"
+                    },
+                    "whatIsMyBalance": {
+                        "title": "💰 Мой Баланс",
+                        "description": "Проверить баланс счета",
+                        "button": "💰 Проверить Баланс",
+                        "initial": "💰 <b>Мой Баланс</b>\n\nВыберите действие:",
+                        "response": "💰 <b>Мой Баланс</b>\n\n[ЗАГЛУШКА] Здесь будет отображаться информация о вашем текущем балансе.\n\n<i>Функция отслеживания баланса скоро!</i>"
+                    },
+                    "showLastactions": {
+                        "title": "📋 Последние Действия",
+                        "description": "Просмотр истории недавней активности",
+                        "button": "📋 Показать Действия",
+                        "initial": "📋 <b>Последние Действия</b>\n\nВыберите действие:",
+                        "response": "📋 <b>Последние Действия</b>\n\n[ЗАГЛУШКА] Здесь будет показана история ваших последних действий и активности.\n\n<i>Функция истории действий скоро!</i>"
+                    }
+                },
                 "commands": {
                     "start": [
                         "🎉 Добро пожаловать в OTP Social Gateway! Я ваш цифровой охранник с чувством юмора!",
@@ -576,6 +620,13 @@ class FunnyBotCommands:
                     "dice_quality_ok": "🤷‍♂️ ¡Podría ser peor!"
                 },
                 "menu": {
+                    "welcomeBack": {
+                        "title": "👋 ¡Bienvenido de nuevo, {name}!",
+                        "description": "Continuar a tu cuenta",
+                        "button": "👋 Bienvenido",
+                        "initial": "👋 <b>¡Bienvenido de nuevo, {name}!</b>\n\n¡Qué alegría verte de nuevo! Haz clic en el botón para acceder a tu cuenta:",
+                        "response": "👋 <b>¡Bienvenido de nuevo, {name}!</b>\n\nTu cuenta está lista. Haz clic en el botón a continuación para acceder a tu panel."
+                    },
                     "joinToMe": {
                         "title": "👥 Unirse A Mí",
                         "description": "Conectar y unirse a la comunidad",
@@ -700,6 +751,13 @@ class FunnyBotCommands:
                     "dice_quality_ok": "🤷‍♂️ Könnte schlimmer sein!"
                 },
                 "menu": {
+                    "welcomeBack": {
+                        "title": "👋 Willkommen zurück, {name}!",
+                        "description": "Zu deinem Konto weiterleiten",
+                        "button": "👋 Willkommen",
+                        "initial": "👋 <b>Willkommen zurück, {name}!</b>\n\nSchön, dich wiederzusehen! Klicke auf die Schaltfläche, um auf dein Konto zuzugreifen:",
+                        "response": "👋 <b>Willkommen zurück, {name}!</b>\n\nDein Konto ist bereit. Klicke auf die Schaltfläche unten, um auf dein Dashboard zuzugreifen."
+                    },
                     "joinToMe": {
                         "title": "👥 Beitreten",
                         "description": "Verbinden und der Community beitreten",
@@ -748,29 +806,67 @@ class FunnyBotCommands:
         return "en"
     
     def _get_menu_text(self, action_key: str, language_code: Optional[str] = None, field: str = "title") -> str:
-        """Get translated menu text for an action"""
+        """Get translated menu text for an action - KISS: Simple lookup with fallback"""
         lang = self._get_language(language_code)
-        return self.translations[lang]["menu"][action_key][field]
+        try:
+            return self.translations[lang]["menu"][action_key][field]
+        except KeyError:
+            # Fallback to English if translation missing
+            logger.warning(f"Translation missing for {lang}/{action_key}/{field}, using English")
+            return self.translations["en"]["menu"].get(action_key, {}).get(field, action_key)
     
     def _get_response_text(self, action_key: str, language_code: Optional[str] = None) -> str:
         """Get translated response text for an action"""
         lang = self._get_language(language_code)
         return self.translations[lang]["menu"][action_key]["response"]
     
-    async def handle_inline_query(self, inline_query_id: str, query: str, user_id: str, language_code: Optional[str] = None) -> bool:
-        """Handle inline queries when @taxoin_bot (or any bot username) is mentioned in any chat"""
+    async def handle_inline_query(
+        self, 
+        inline_query_id: str, 
+        query: str, 
+        user_id: str, 
+        language_code: Optional[str] = None,
+        full_user_data: Optional[dict] = None,
+        telegram_user_service = None
+    ) -> bool:
+        """Handle inline queries with registration-aware dynamic menu - KISS approach"""
         try:
             # Get user language (default to 'en' if not provided or not supported)
             lang = self._get_language(language_code)
             logger.info(f"Handling inline query for user {user_id} with language: {lang}")
             
-            # Define menu action keys
-            menu_action_keys = [
-                ("1", "joinToMe"),
-                ("2", "explainWhatIsThis"),
-                ("3", "whatIsMyBalance"),
-                ("4", "showLastactions")
-            ]
+            # ✅ NEW: Extract Telegram user ID
+            telegram_user_id = int(full_user_data.get("id", user_id)) if full_user_data else int(user_id)
+            
+            # ✅ NEW: Check registration status (KISS: Simple check if service available)
+            is_registered = False
+            registered_user = None
+            if telegram_user_service:
+                try:
+                    status = await telegram_user_service.check_registration_status(telegram_user_id)
+                    is_registered = status.get("is_registered", False) and status.get("is_verified", False)
+                    registered_user = status.get("user")
+                    
+                    # Save Telegram profile for unregistered users
+                    if not is_registered and full_user_data:
+                        await telegram_user_service.save_telegram_profile(full_user_data)
+                except Exception as e:
+                    logger.error(f"Error checking registration status: {e}")
+            
+            # ✅ NEW: Generate menu based on registration status (KISS: Simple if/else)
+            if is_registered and registered_user:
+                # REGISTERED USER - Show Welcome Back + Balance + LastActions
+                menu_action_keys = [
+                    ("1", "welcomeBack"),
+                    ("2", "whatIsMyBalance"),
+                    ("3", "showLastactions")
+                ]
+            else:
+                # UNREGISTERED USER - Show Join To Me + Explain (NO Balance/LastActions)
+                menu_action_keys = [
+                    ("1", "joinToMe"),
+                    ("2", "explainWhatIsThis")
+                ]
             
             # Build inline query results with translations
             results = []
@@ -781,18 +877,25 @@ class FunnyBotCommands:
                 button_text = self._get_menu_text(action_key, language_code, "button")
                 initial_message = self._get_menu_text(action_key, language_code, "initial")
                 
-                # Map action_key to callback_data
+                # ✅ Handle special cases (KISS: Simple if/else)
                 callback_data_map = {
                     "joinToMe": "action_joinToMe",
                     "explainWhatIsThis": "action_explainWhatIsThis",
                     "whatIsMyBalance": "action_whatIsMyBalance",
-                    "showLastactions": "action_showLastactions"
+                    "showLastactions": "action_showLastactions",
+                    "welcomeBack": "action_welcomeBack"
                 }
                 
-                # Create inline keyboard with button that will appear in the sent message
+                # ✅ For welcomeBack: Substitute user name in title/initial (if available)
+                if action_key == "welcomeBack" and registered_user:
+                    user_name = registered_user.get("name", "User")
+                    title = title.replace("{name}", user_name)
+                    initial_message = initial_message.replace("{name}", user_name)
+                
+                # Create inline keyboard with button
                 keyboard = [[{
                     "text": button_text,
-                    "callback_data": callback_data_map[action_key]
+                    "callback_data": callback_data_map.get(action_key, f"action_{action_key}")
                 }]]
                 
                 result = {
@@ -841,12 +944,13 @@ class FunnyBotCommands:
             lang = self._get_language(language_code)
             logger.info(f"Handling callback query '{callback_data}' for chat {chat_id} with language: {lang}")
             
-            # Map callback_data to action_key
+            # Map callback_data to action_key (KISS: Add welcomeBack)
             action_key_map = {
                 "action_joinToMe": "joinToMe",
                 "action_explainWhatIsThis": "explainWhatIsThis",
                 "action_whatIsMyBalance": "whatIsMyBalance",
-                "action_showLastactions": "showLastactions"
+                "action_showLastactions": "showLastactions",
+                "action_welcomeBack": "welcomeBack"
             }
             
             # Get action key
@@ -855,6 +959,13 @@ class FunnyBotCommands:
             if action_key:
                 # Get translated response text
                 response_text = self._get_response_text(action_key, language_code)
+                
+                # ✅ NEW: For welcomeBack, add magic link button (KISS: Simple URL generation)
+                if action_key == "welcomeBack":
+                    # Generate magic link - we need user_id and email from DB
+                    # For now, show response with placeholder - will be enhanced later
+                    # response_text += f"\n\n🔗 <a href='https://putana.date/api/verify-magic-link?token=...'>Continue to Account</a>"
+                    pass  # Magic link generation will be added after backend integration
             else:
                 # Fallback for unknown actions
                 fallback_texts = {

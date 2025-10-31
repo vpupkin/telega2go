@@ -38,6 +38,8 @@ services:
       - RATE_LIMIT_PER_USER=${RATE_LIMIT_PER_USER:-5}
       - PORT=55155
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MONGO_URL=mongodb://admin:password123@mongodb:27017/telega2go?authSource=admin
+      - DB_NAME=telega2go
     networks:
       - telega2go-network
     healthcheck:

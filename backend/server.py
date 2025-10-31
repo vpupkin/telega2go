@@ -26,6 +26,9 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'your-secret-key-change-in-production'
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_HOURS = 24
 
+# Magic Link Configuration (KISS: Reuse same secret as JWT for simplicity)
+MAGIC_LINK_SECRET = os.environ.get('MAGIC_LINK_SECRET', JWT_SECRET)
+
 # OTP Gateway URL
 OTP_GATEWAY_URL = os.environ.get('OTP_GATEWAY_URL', 'http://localhost:5571')
 
@@ -116,6 +119,101 @@ def verify_token(token: str):
     except jwt.JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+# Magic Link Functions (KISS: Simple token creation/verification)
+def create_magic_link_token(email: str, user_id: str) -> Optional[str]:
+    """Create a magic link token for registered users - KISS approach"""
+    try:
+        import time
+        import hmac
+        import hashlib
+        import base64
+        
+        # Create token data (email:user_id:timestamp)
+        token_time = str(int(time.time()))
+        token_data = f"{email}:{user_id}:{token_time}"
+        
+        # Create signature
+        signature = hmac.new(
+            MAGIC_LINK_SECRET.encode(),
+            token_data.encode(),
+            hashlib.sha256
+        ).digest()
+        
+        # Combine data and signature
+        full_token = f"{token_data}:{base64.urlsafe_b64encode(signature).decode()}"
+        
+        # Encode to base64 URL-safe
+        token = base64.urlsafe_b64encode(full_token.encode()).decode()
+        return token
+    except Exception as e:
+        logging.error(f"Failed to create magic link token: {e}")
+        return None
+
+def verify_magic_link_token(token: str) -> Optional[dict]:
+    """Verify and decode magic link token - KISS approach"""
+    try:
+        import base64
+        import hmac
+        import hashlib
+        from datetime import timedelta
+        
+        # Decode the token
+        decoded_token = base64.urlsafe_b64decode(token.encode()).decode()
+        token_data, signature = decoded_token.rsplit(':', 1)
+        
+        # Verify signature
+        expected_signature = hmac.new(
+            MAGIC_LINK_SECRET.encode(),
+            token_data.encode(),
+            hashlib.sha256
+        ).digest()
+        
+        if not hmac.compare_digest(expected_signature, base64.urlsafe_b64decode(signature)):
+            return None
+        
+        # Parse token data
+        email, user_id, timestamp = token_data.split(':')
+        
+        # Check if token is not too old (24 hours for registered users)
+        token_time = datetime.fromtimestamp(float(timestamp), tz=timezone.utc)
+        if datetime.now(timezone.utc) - token_time > timedelta(hours=24):
+            return None
+        
+        return {
+            "email": email,
+            "user_id": user_id,
+            "timestamp": token_time
+        }
+    except Exception as e:
+        logging.error(f"Magic link token verification failed: {e}")
+        return None
+
+@api_router.get("/verify-magic-link")
+async def verify_magic_link(token: str):
+    """Verify magic link and authenticate registered user - KISS: Simple redirect"""
+    from fastapi.responses import RedirectResponse
+    
+    # Verify the magic link token
+    token_data = verify_magic_link_token(token)
+    if not token_data:
+        # Redirect to error page
+        return RedirectResponse(url=f"/?error=invalid_token", status_code=302)
+    
+    email = token_data["email"]
+    user_id = token_data["user_id"]
+    
+    # Verify user exists and is verified
+    user = await db.users.find_one({"id": user_id, "email": email, "is_verified": True})
+    if not user:
+        return RedirectResponse(url=f"/?error=user_not_found", status_code=302)
+    
+    # Create JWT token for session
+    token_data_jwt = {"sub": user["id"], "email": user["email"]}
+    access_token = create_access_token(token_data_jwt)
+    
+    # Redirect to dashboard with token
+    return RedirectResponse(url=f"/?token={access_token}", status_code=302)
+
 # OTP Gateway Integration
 async def send_otp_via_telegram(chat_id: str, otp: str):
     """Send OTP via Telegram using the OTP Gateway"""
@@ -165,13 +263,83 @@ async def get_status_checks():
     return status_checks
 
 # User Registration Endpoints
+@api_router.get("/registrationOfNewUser")
+async def get_registration_form_data(telegram_user_id: int):
+    """Get Telegram user data for registration form pre-filling - KISS approach"""
+    try:
+        # Load Telegram profile from telegram_users collection
+        telegram_profile = await db.telegram_users.find_one(
+            {"telegram_user_id": telegram_user_id}
+        )
+        
+        if not telegram_profile:
+            raise HTTPException(
+                status_code=404, 
+                detail="Telegram profile not found. Please call the bot first."
+            )
+        
+        telegram_first_name = telegram_profile.get("first_name", "")
+        
+        # ✅ CRITICAL: Check name availability (KISS: Simple check)
+        if not telegram_first_name or not telegram_first_name.strip():
+            name_available = {
+                "available": False,
+                "suggestion": None,
+                "message": "Name cannot be empty"
+            }
+        else:
+            # Case-insensitive check
+            existing_user = await db.users.find_one({
+                "name": {"$regex": f"^{telegram_first_name}$", "$options": "i"}
+            })
+            
+            if existing_user:
+                name_available = {
+                    "available": False,
+                    "suggestion": None,
+                    "message": f"Name '{telegram_first_name}' is already taken. Please choose a different name."
+                }
+            else:
+                name_available = {
+                    "available": True,
+                    "suggestion": telegram_first_name,
+                    "message": None
+                }
+        
+        return {
+            "telegram_user_id": telegram_user_id,
+            "telegram_username": telegram_profile.get("telegram_username"),
+            "first_name": telegram_profile.get("first_name"),
+            "last_name": telegram_profile.get("last_name"),
+            "language_code": telegram_profile.get("language_code", "en"),
+            "name_available": name_available["available"],
+            "suggested_name": name_available["suggestion"],
+            "name_message": name_available["message"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error in get_registration_form_data: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 @api_router.post("/register")
 async def register_user(registration: UserRegistration):
-    """Start user registration process and send OTP"""
-    # Check if user already exists
+    """Start user registration process and send OTP - KISS: Simple validation"""
+    # ✅ CRITICAL: Check name uniqueness (KISS: Case-insensitive check)
+    existing_user_by_name = await db.users.find_one({
+        "name": {"$regex": f"^{registration.name}$", "$options": "i"}
+    })
+    
+    if existing_user_by_name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Name '{registration.name}' is already taken. Please choose a different name."
+        )
+    
+    # Check if user already exists by email
     existing_user = await db.users.find_one({"email": registration.email})
     if existing_user:
-        raise HTTPException(status_code=400, detail="User already exists")
+        raise HTTPException(status_code=400, detail="User with this email already exists")
     
     # Generate OTP
     import random
@@ -221,8 +389,15 @@ async def verify_otp(verification: OTPVerification):
     if session.get('otp') != verification.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
     
-    # Create user
+    # Create user (KISS: Link Telegram profile if available)
     user_data = session['user_data']
+    telegram_user_id = int(user_data.get('telegram_chat_id')) if user_data.get('telegram_chat_id', '').isdigit() else None
+    
+    # Try to get Telegram profile data
+    telegram_profile = await db.telegram_users.find_one(
+        {"telegram_user_id": telegram_user_id}
+    ) if telegram_user_id else None
+    
     user = User(
         name=user_data['name'],
         email=user_data['email'],
@@ -231,8 +406,15 @@ async def verify_otp(verification: OTPVerification):
         is_verified=True
     )
     
-    # Save user to database
+    # Save user to database (KISS: Add Telegram fields if available)
     user_doc = user.model_dump()
+    if telegram_profile:
+        user_doc['telegram_user_id'] = telegram_user_id
+        user_doc['telegram_username'] = telegram_profile.get('telegram_username')
+        user_doc['first_name'] = telegram_profile.get('first_name')
+        user_doc['last_name'] = telegram_profile.get('last_name')
+        user_doc['language_code'] = telegram_profile.get('language_code', 'en')
+    
     user_doc['created_at'] = user_doc['created_at'].isoformat()
     user_doc['updated_at'] = user_doc['updated_at'].isoformat()
     

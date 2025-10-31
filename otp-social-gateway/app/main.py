@@ -19,15 +19,28 @@ from app.config import settings
 from app.models import SendOTPRequest, SendOTPResponse, ErrorResponse, HealthResponse
 from app.simple_otp_service import SimpleOTPService
 from app.bot_commands import FunnyBotCommands
+from app.telegram_user_service import TelegramUserService
 from app import __version__
 
-# Configure structured logging
+# Configure structured logging FIRST (before MongoDB connection that uses logger)
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper()),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
+
+# MongoDB connection (KISS: Simple connection like backend)
+try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+    import os
+    mongo_url = os.environ.get('MONGO_URL', 'mongodb://admin:password123@mongodb:27017/telega2go?authSource=admin')
+    mongo_client = AsyncIOMotorClient(mongo_url) if mongo_url else None
+    mongo_db = mongo_client[settings.db_name] if mongo_client else None
+    logger.info(f"MongoDB connected: {settings.db_name}")
+except Exception as e:
+    logger.warning(f"MongoDB connection failed: {e} - Continuing without DB")
+    mongo_db = None
 
 # Prometheus metrics
 otp_sent_counter = Counter('otp_sent_total', 'Total OTPs sent')
@@ -40,6 +53,7 @@ user_rate_limits = defaultdict(lambda: deque(maxlen=settings.rate_limit_per_user
 # Initialize OTP service
 otp_service: SimpleOTPService = None
 bot_commands: FunnyBotCommands = None
+telegram_user_service: TelegramUserService = None
 
 
 def check_user_rate_limit(chat_id: str) -> bool:
@@ -73,9 +87,17 @@ async def lifespan(app: FastAPI):
         logger.error("TELEGRAM_BOT_TOKEN not set in environment")
         raise ValueError("TELEGRAM_BOT_TOKEN is required")
     
-    global otp_service, bot_commands
+    global otp_service, bot_commands, telegram_user_service
     otp_service = SimpleOTPService(settings.telegram_bot_token)
     bot_commands = FunnyBotCommands(settings.telegram_bot_token)
+    
+    # Initialize Telegram User Service (KISS: Simple init if DB available)
+    if mongo_db:
+        telegram_user_service = TelegramUserService(mongo_db)
+        logger.info("TelegramUserService initialized with MongoDB")
+    else:
+        telegram_user_service = None
+        logger.warning("TelegramUserService not initialized - MongoDB unavailable")
     
     # Skip bot token verification due to persistent network timeouts
     logger.info("Skipping bot token verification due to network timeout issues")
@@ -229,12 +251,20 @@ async def telegram_webhook(request: Request):
             inline_query = data["inline_query"]
             inline_query_id = inline_query["id"]
             query = inline_query.get("query", "")
-            user = inline_query.get("from", {})
+            user = inline_query.get("from", {})  # ✅ Full Telegram user object
             user_id = str(user.get("id", ""))
             language_code = user.get("language_code")  # Get user's Telegram language
             
             if bot_commands:
-                success = await bot_commands.handle_inline_query(inline_query_id, query, user_id, language_code)
+                # ✅ NEW: Pass full user data and telegram_user_service for dynamic menu
+                success = await bot_commands.handle_inline_query(
+                    inline_query_id, 
+                    query, 
+                    user_id, 
+                    language_code,
+                    full_user_data=user,  # ✅ Pass full user object
+                    telegram_user_service=telegram_user_service  # ✅ Pass service for DB checks
+                )
                 if success:
                     logger.info(f"Handled inline query from user {user_id}")
                     return {"status": "success", "type": "inline_query"}

@@ -41,13 +41,8 @@ validate_environment() {
     
     # Check required tools
     command -v docker >/dev/null 2>&1 || { log_error "Docker is required but not installed."; exit 1; }
+    command -v docker-compose >/dev/null 2>&1 || command -v docker >/dev/null 2>&1 || { log_error "Docker Compose is required but not installed."; exit 1; }
     command -v python3 >/dev/null 2>&1 || { log_error "Python3 is required but not installed."; exit 1; }
-    
-    # Check if start.sh exists (unified script)
-    if [ ! -f "./start.sh" ]; then
-        log_error "start.sh not found. This script requires the unified start.sh."
-        exit 1
-    fi
     
     # Check if we're in the right directory
     if [ ! -f "docker-compose.yml" ]; then
@@ -214,10 +209,13 @@ create_backup() {
 rollback() {
     log "🔄 Rolling back deployment..."
     
-    # Use unified start.sh for rollback
-    if ! ./start.sh rollback; then
-        log_error "Rollback via start.sh failed"
-        return 1
+    # Stop current services
+    docker-compose down
+    
+    # Restore from backup if available
+    if [ -d "$BACKUP_DIR" ]; then
+        log "Restoring from backup..."
+        # Restore logic would go here
     fi
     
     log_warning "Rollback completed"

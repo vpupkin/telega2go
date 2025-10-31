@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     magic_link_base_url: str = "https://putana.date/api"
     magic_link_secret: str = "your-magic-link-secret-change-in-production"
     
+    # MongoDB Configuration (KISS: Use same DB as backend)
+    mongo_url: Optional[str] = None
+    db_name: str = "telega2go"
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
