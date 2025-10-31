@@ -69,6 +69,13 @@ class UserRegistration(BaseModel):
     phone: str
     telegram_chat_id: str
 
+class TelegramUserRegistration(BaseModel):
+    """Registration without OTP - user already validated from Telegram"""
+    name: str
+    email: EmailStr
+    phone: str
+    telegram_user_id: int
+
 class OTPVerification(BaseModel):
     email: EmailStr
     otp: str
@@ -398,6 +405,96 @@ async def register_user(registration: UserRegistration):
     )
     
     return {"message": "Registration initiated. Check your Telegram for OTP code."}
+
+@api_router.post("/register-telegram", response_model=TokenResponse)
+async def register_telegram_user(registration: TelegramUserRegistration):
+    """✅ PENALTY3: Register Telegram user directly without OTP - already validated"""
+    try:
+        # ✅ CRITICAL: Check name uniqueness
+        existing_user_by_name = await db.users.find_one({
+            "name": {"$regex": f"^{registration.name}$", "$options": "i"}
+        })
+        
+        if existing_user_by_name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Name '{registration.name}' is already taken. Please choose a different name."
+            )
+        
+        # Check if user already exists by email
+        existing_user = await db.users.find_one({"email": registration.email})
+        if existing_user:
+            raise HTTPException(status_code=400, detail="User with this email already exists")
+        
+        # Check if Telegram user already registered
+        existing_telegram_user = await db.users.find_one({
+            "$or": [
+                {"telegram_user_id": registration.telegram_user_id},
+                {"telegram_chat_id": str(registration.telegram_user_id)}
+            ]
+        })
+        if existing_telegram_user:
+            raise HTTPException(status_code=400, detail="This Telegram account is already registered")
+        
+        # Get Telegram profile data
+        telegram_profile = await db.telegram_users.find_one(
+            {"telegram_user_id": registration.telegram_user_id}
+        )
+        
+        if not telegram_profile:
+            raise HTTPException(
+                status_code=404,
+                detail="Telegram profile not found. Please call the bot first."
+            )
+        
+        # Create user immediately (no OTP needed - validated from Telegram)
+        user = User(
+            name=registration.name,
+            email=registration.email,
+            phone=registration.phone,
+            telegram_chat_id=str(registration.telegram_user_id),
+            is_verified=True  # ✅ Already validated via Telegram
+        )
+        
+        # Save user with all Telegram data
+        user_doc = user.model_dump()
+        user_doc['telegram_user_id'] = registration.telegram_user_id
+        user_doc['telegram_username'] = telegram_profile.get('telegram_username')
+        user_doc['first_name'] = telegram_profile.get('first_name')
+        user_doc['last_name'] = telegram_profile.get('last_name')
+        user_doc['language_code'] = telegram_profile.get('language_code', 'en')
+        user_doc['is_premium'] = telegram_profile.get('is_premium', False)
+        
+        user_doc['created_at'] = user_doc['created_at'].isoformat()
+        user_doc['updated_at'] = user_doc['updated_at'].isoformat()
+        
+        await db.users.insert_one(user_doc)
+        
+        # Create JWT token
+        token_data = {"sub": user.id, "email": user.email}
+        access_token = create_access_token(token_data)
+        
+        # Return user data and token
+        user_response = UserResponse(
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            phone=user.phone,
+            telegram_chat_id=user.telegram_chat_id,
+            is_verified=user.is_verified,
+            created_at=user.created_at
+        )
+        
+        return TokenResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user=user_response
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error in register_telegram_user: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @api_router.post("/verify-otp", response_model=TokenResponse)
 async def verify_otp(verification: OTPVerification):

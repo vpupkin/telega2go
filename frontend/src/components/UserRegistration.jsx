@@ -66,17 +66,12 @@ const UserRegistration = () => {
       setNameAvailable(data.name_available);
       setNameMessage(data.name_message || '');
       
-      // Pre-fill name only if available
-      if (data.name_available && data.suggested_name) {
+      // Pre-fill name with Telegram first_name (always show it, even if taken)
+      // If taken, it will be shown in RED
+      if (data.first_name) {
         setFormData(prev => ({
           ...prev,
-          name: data.suggested_name
-        }));
-      } else {
-        // Name is taken - leave empty and show message
-        setFormData(prev => ({
-          ...prev,
-          name: ''
+          name: data.first_name
         }));
       }
     } catch (err) {
@@ -123,38 +118,67 @@ const UserRegistration = () => {
     e.preventDefault();
     if (!validateForm()) return;
 
+    // ✅ PENALTY2: Validate name is not taken if from Telegram
+    if (telegramUserIdParam && !nameAvailable && formData.name === telegramData?.first_name) {
+      setError('You must choose a different username. The Telegram name is already taken.');
+      return;
+    }
+
     setIsLoading(true);
     setError('');
 
     try {
-      // Step 1: Register user and send OTP
-      const response = await fetch(`${API_BASE}/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: formData.name,
-          email: formData.email,
-          phone: formData.phone,
-          // Include telegram_user_id if available (from Telegram bot)
-          ...(formData.telegram_user_id ? { telegram_user_id: parseInt(formData.telegram_user_id) } : {}),
-          // Only send the relevant field based on user choice
-          ...(useUsername 
-            ? { telegram_username: formData.telegram_username }
-            : { telegram_chat_id: formData.telegram_chat_id }
-          )
-        }),
-      });
+      // ✅ PENALTY3: Skip OTP for Telegram users - direct registration
+      if (telegramUserIdParam) {
+        const response = await fetch(`${API_BASE}/register-telegram`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: formData.name,
+            email: formData.email,
+            phone: formData.phone,
+            telegram_user_id: parseInt(formData.telegram_user_id)
+          }),
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Registration failed');
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Registration failed');
+        }
+
+        const data = await response.json();
+        setSuccess('Registration completed successfully!');
+        setStep(3); // Skip OTP, go directly to success
+      } else {
+        // Regular registration flow with OTP
+        const response = await fetch(`${API_BASE}/register`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: formData.name,
+            email: formData.email,
+            phone: formData.phone,
+            // Only send the relevant field based on user choice
+            ...(useUsername 
+              ? { telegram_username: formData.telegram_username }
+              : { telegram_chat_id: formData.telegram_chat_id }
+            )
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Registration failed');
+        }
+
+        const data = await response.json();
+        setSuccess('Registration initiated! Check your Telegram for OTP.');
+        setStep(2); // Move to OTP verification step
       }
-
-      const data = await response.json();
-      setSuccess('Registration initiated! Check your Telegram for OTP.');
-      setStep(2); // Move to OTP verification step
     } catch (err) {
       setError(err.message);
     } finally {
@@ -258,26 +282,81 @@ const UserRegistration = () => {
         )}
         
         <form onSubmit={handleRegistration} className="space-y-4">
+          {/* ✅ PENALTY1: Show all Telegram data as READ-ONLY */}
+          {telegramUserIdParam && telegramData && (
+            <div className="space-y-3 p-4 bg-gray-50 rounded-lg border">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">📱 Your Telegram Data (Read-Only)</h3>
+              
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <Label className="text-xs text-gray-500">Telegram User ID</Label>
+                  <Input
+                    value={telegramData.telegram_user_id || ''}
+                    readOnly
+                    className="bg-gray-100 cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">Username</Label>
+                  <Input
+                    value={telegramData.telegram_username || 'N/A'}
+                    readOnly
+                    className="bg-gray-100 cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">First Name</Label>
+                  <Input
+                    value={telegramData.first_name || 'N/A'}
+                    readOnly
+                    className="bg-gray-100 cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">Last Name</Label>
+                  <Input
+                    value={telegramData.last_name || 'N/A'}
+                    readOnly
+                    className="bg-gray-100 cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-500">Language</Label>
+                  <Input
+                    value={telegramData.language_code?.toUpperCase() || 'N/A'}
+                    readOnly
+                    className="bg-gray-100 cursor-not-allowed"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ PENALTY2: Name field with RED styling if taken */}
           <div className="space-y-2">
-            <Label htmlFor="name">Full Name</Label>
+            <Label htmlFor="name">Username/Login ID</Label>
             <Input
               id="name"
               name="name"
               type="text"
-              placeholder="Enter your full name"
+              placeholder="Choose your unique username"
               value={formData.name}
               onChange={handleInputChange}
+              className={!nameAvailable && telegramData?.first_name ? "border-red-500 bg-red-50" : ""}
               required
             />
-            {!nameAvailable && nameMessage && (
+            {!nameAvailable && nameMessage && telegramData?.first_name && (
               <Alert variant="destructive" className="mt-2">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{nameMessage}</AlertDescription>
+                <AlertDescription>
+                  <span className="font-semibold text-red-700">{formData.name}</span> is already reserved in the system. 
+                  Please choose a different username/login ID.
+                </AlertDescription>
               </Alert>
             )}
             {telegramData && nameAvailable && telegramData.first_name && (
-              <p className="text-sm text-gray-500 mt-1">
-                Pre-filled from Telegram: {telegramData.first_name}
+              <p className="text-sm text-green-600 mt-1">
+                ✅ Pre-filled from Telegram: <span className="font-medium">{telegramData.first_name}</span> (available)
               </p>
             )}
           </div>
@@ -308,6 +387,8 @@ const UserRegistration = () => {
             />
           </div>
 
+          {/* Only show Telegram fields for non-Telegram registrations */}
+          {!telegramUserIdParam && (
           <div className="space-y-3">
             <div className="flex items-center space-x-4">
               <Button
@@ -328,31 +409,7 @@ const UserRegistration = () => {
               </Button>
             </div>
             
-            {telegramUserIdParam ? (
-              <div className="space-y-2">
-                <Label htmlFor="telegram_username">Telegram Username</Label>
-                <Input
-                  id="telegram_username"
-                  name="telegram_username"
-                  type="text"
-                  placeholder="@yourusername"
-                  value={formData.telegram_username}
-                  onChange={handleInputChange}
-                  disabled={!!telegramData?.telegram_username}
-                  required
-                />
-                {telegramData?.telegram_username && (
-                  <p className="text-xs text-green-600">
-                    ✅ Pre-filled from Telegram: {telegramData.telegram_username}
-                  </p>
-                )}
-                {!telegramData?.telegram_username && (
-                  <p className="text-xs text-gray-500">
-                    Your Telegram username will be linked automatically
-                  </p>
-                )}
-              </div>
-            ) : useUsername ? (
+            {useUsername ? (
               <div className="space-y-2">
                 <Label htmlFor="telegram_username">Telegram Username</Label>
                 <Input
@@ -386,6 +443,7 @@ const UserRegistration = () => {
               </div>
             )}
           </div>
+          )}
 
           {error && (
             <Alert variant="destructive">
@@ -401,7 +459,10 @@ const UserRegistration = () => {
           )}
 
           <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? 'Registering...' : 'Register & Send OTP'}
+            {isLoading 
+              ? (telegramUserIdParam ? 'Registering...' : 'Sending OTP...') 
+              : (telegramUserIdParam ? '✅ Complete Registration (No OTP Needed)' : 'Register & Send OTP')
+            }
             <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
         </form>
