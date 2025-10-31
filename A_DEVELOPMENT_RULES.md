@@ -31,7 +31,10 @@
 - ✅ **ALWAYS** run pre-commit hooks before any commit
 - ✅ **ALWAYS** ensure all tests pass
 - ✅ **ALWAYS** check code quality
+- ✅ **ALWAYS** run integration tests after redeployment
+- ✅ **ALWAYS** verify no errors before reporting success
 - ❌ **NEVER** bypass pre-commit checks
+- ❌ **NEVER** report success if errors detected in tests
 
 ### 5. **SINGLE DOCKER STARTUP METHOD - MANDATORY**
 - ✅ **ONLY** use `./start.sh` to start services
@@ -93,6 +96,47 @@
 11. Create tag with sequential number + keywords (if requested)
 ```
 
+### 9. **ITERATIVE BUG FIXING WORKFLOW - MANDATORY**
+- ✅ **ALWAYS** redeploy after fixing bugs on any iteration
+- ✅ **ALWAYS** run integration tests and check for errors before reporting success
+- ✅ **ALWAYS** document all recognized/detected errors (if any)
+- ✅ **ALWAYS** add new errors to error list for next iteration
+- ✅ **ALWAYS** iterate until no visible and recognizable errors detected
+- ❌ **NEVER** report success or commit if errors are detected
+- ❌ **NEVER** skip redeployment after bug fixes
+- ❌ **NEVER** skip integration tests before reporting
+
+**Workflow Steps:**
+```
+1. Fix bug/implement change
+2. REDEPLOY (always use ./start.sh)
+3. Run integration tests (./start.sh test or manual testing)
+4. Check for errors:
+   - If errors detected:
+     a. Document all errors
+     b. Add to error list
+     c. Go back to step 1 (fix bugs)
+   - If no errors:
+     d. Proceed to commit approval
+5. Wait for commit confirmation
+6. Only then commit and report success
+```
+
+**Error Documentation Format:**
+- Error type/description
+- Location (file, function, line)
+- Steps to reproduce
+- Expected vs actual behavior
+- Priority (critical/high/medium/low)
+
+**Error List Maintenance:**
+- Keep track of all detected errors
+- Update list after each iteration
+- Mark errors as resolved when fixed
+- Re-test resolved errors to confirm fix
+
+🚨 **VIOLATION**: Skipping redeployment or tests is a CRITICAL RULE VIOLATION
+
 ## 🛠️ **CURRENT SITUATION**
 
 ### **Issue**: 500 Internal Server Error in registration
@@ -131,5 +175,10 @@ I understand and will follow these rules:
 - ✅ **ALWAYS test all previous tests + new feature tests**
 - ✅ **ALWAYS test with running containers (Docker-based app requirement)**
 - ❌ **NEVER commit without successful test results**
+- ✅ **ALWAYS redeploy after bug fixes (iterative workflow)**
+- ✅ **ALWAYS run integration tests and check errors before reporting success**
+- ✅ **ALWAYS document all detected errors and add to error list**
+- ✅ **ALWAYS iterate until no errors detected (if errors → fix and redeploy)**
+- ❌ **NEVER skip redeployment or tests after bug fixes**
 
 **These rules are now MANDATORY for all future development.**
