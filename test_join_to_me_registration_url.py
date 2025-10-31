@@ -42,7 +42,8 @@ class TestJoinToMeRegistrationURL:
     async def test_join_to_me_has_registration_url_button(self, sample_unregistered_user_data, mock_telegram_service):
         """PENALTY TEST 1: Join To Me inline query must include registration URL button"""
         # Arrange
-        from otp_social_gateway.app.bot_commands import FunnyBotCommands
+        sys.path.insert(0, 'otp-social-gateway')
+        from app.bot_commands import FunnyBotCommands
         
         bot = FunnyBotCommands("fake_token")
         inline_query_id = "test_query_123"
@@ -105,7 +106,8 @@ class TestJoinToMeRegistrationURL:
     async def test_join_to_me_url_includes_correct_telegram_user_id(self, mock_telegram_service):
         """PENALTY TEST 2: Registration URL must include correct telegram_user_id"""
         # Arrange
-        from otp_social_gateway.app.bot_commands import FunnyBotCommands
+        sys.path.insert(0, 'otp-social-gateway')
+        from app.bot_commands import FunnyBotCommands
         
         bot = FunnyBotCommands("fake_token")
         inline_query_id = "test_query_456"
