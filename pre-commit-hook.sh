@@ -21,5 +21,13 @@ if ! python3 test_basic_functionality.py; then
     exit 1
 fi
 
+# Run i18n feature tests
+echo "🌍 Running i18n feature tests..."
+if ! python3 test_i18n_features.py; then
+    echo "❌ i18n feature tests failed! Please fix the issues before committing."
+    echo "💡 Run 'python3 test_i18n_features.py' to see detailed error messages."
+    exit 1
+fi
+
 echo "✅ All basic tests passed! Proceeding with commit."
 exit 0
