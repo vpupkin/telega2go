@@ -40,6 +40,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - MONGO_URL=mongodb://admin:password123@mongodb:27017/telega2go?authSource=admin
       - DB_NAME=telega2go
+      - BACKEND_URL=http://backend:8000
     networks:
       - telega2go-network
     healthcheck:

@@ -892,10 +892,36 @@ class FunnyBotCommands:
                     title = title.replace("{name}", user_name)
                     initial_message = initial_message.replace("{name}", user_name)
                 
-                # ✅ PENALTY++ FIX: For joinToMe, add registration URL button AND clickable link in message
+                # ✅ PENALTY4: Generate URR_ID and store Telegram data, then create registration URL
                 if action_key == "joinToMe":
-                    # Generate registration URL with telegram_user_id
-                    registration_url = f"https://putana.date/registrationOfNewUser?telegram_user_id={telegram_user_id}"
+                    registration_url = None
+                    
+                    # Create registration request with URR_ID via backend API
+                    try:
+                        import os
+                        import httpx
+                        backend_url = os.environ.get('BACKEND_URL', 'http://backend:8000')
+                        
+                        async with httpx.AsyncClient(timeout=10.0) as client:
+                            # Call backend to create registration request and get URR_ID
+                            response = await client.post(
+                                f"{backend_url}/api/create-registration-request",
+                                json=full_user_data or {"id": int(user_id)}
+                            )
+                            
+                            if response.status_code == 200:
+                                request_data = response.json()
+                                urr_id = request_data.get("urr_id")
+                                registration_url = request_data.get("registration_url") or f"https://putana.date/registrationOfNewUser?urr_id={urr_id}"
+                                logger.info(f"Created registration request with URR_ID: {urr_id} for user {telegram_user_id}")
+                            else:
+                                logger.error(f"Failed to create registration request: {response.status_code}")
+                                # Fallback to old method
+                                registration_url = f"https://putana.date/registrationOfNewUser?telegram_user_id={telegram_user_id}"
+                    except Exception as e:
+                        logger.error(f"Error creating registration request: {e}")
+                        # Fallback to old method
+                        registration_url = f"https://putana.date/registrationOfNewUser?telegram_user_id={telegram_user_id}"
                     
                     # ✅ CRITICAL: Add clickable URL link in message content itself
                     initial_message += f"\n\n🚀 <a href='{registration_url}'>Click here to start registration →</a>"
@@ -981,7 +1007,30 @@ class FunnyBotCommands:
             if callback_data == "action_joinToMe":
                 # Extract telegram_user_id from chat_id (they're the same for inline queries)
                 telegram_user_id = int(chat_id)
-                registration_url = f"https://putana.date/registrationOfNewUser?telegram_user_id={telegram_user_id}"
+                
+                # ✅ PENALTY4: Try to create registration request with URR_ID
+                registration_url = None
+                try:
+                    import os
+                    import httpx
+                    backend_url = os.environ.get('BACKEND_URL', 'http://backend:8000')
+                    
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        # Create registration request (we need user data - use minimal)
+                        response = await client.post(
+                            f"{backend_url}/api/create-registration-request",
+                            json={"id": telegram_user_id}  # Minimal data, will be enriched if available
+                        )
+                        
+                        if response.status_code == 200:
+                            request_data = response.json()
+                            registration_url = request_data.get("registration_url")
+                        else:
+                            # Fallback
+                            registration_url = f"https://putana.date/registrationOfNewUser?telegram_user_id={telegram_user_id}"
+                except Exception as e:
+                    logger.error(f"Error creating registration request in callback: {e}")
+                    registration_url = f"https://putana.date/registrationOfNewUser?telegram_user_id={telegram_user_id}"
                 
                 # Send message with clickable URL
                 response_text = f"👥 <b>Join To Me</b>\n\n🚀 <a href='{registration_url}'>Click here to start registration →</a>"

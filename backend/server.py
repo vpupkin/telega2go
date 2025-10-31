@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import jwt
 import httpx
 
@@ -70,11 +70,10 @@ class UserRegistration(BaseModel):
     telegram_chat_id: str
 
 class TelegramUserRegistration(BaseModel):
-    """Registration without OTP - user already validated from Telegram"""
-    name: str
-    email: EmailStr
-    phone: str
-    telegram_user_id: int
+    """✅ PENALTY4: Registration without OTP - user already validated from Telegram"""
+    urr_id: str  # Unique Registration Request ID
+    password: str  # Only editable field
+    # All other fields come from Telegram data (stored with URR_ID)
 
 class OTPVerification(BaseModel):
     email: EmailStr
@@ -295,59 +294,138 @@ async def get_status_checks():
     
     return status_checks
 
-# User Registration Endpoints
-@api_router.get("/registrationOfNewUser")
-async def get_registration_form_data(telegram_user_id: int):
-    """Get Telegram user data for registration form pre-filling - KISS approach"""
+# ✅ PENALTY4: Registration Request with URR_ID
+@api_router.post("/create-registration-request")
+async def create_registration_request(user_data: dict):
+    """Generate URR_ID and store all Telegram user data"""
+    import uuid
+    
     try:
-        # Load Telegram profile from telegram_users collection
-        telegram_profile = await db.telegram_users.find_one(
-            {"telegram_user_id": telegram_user_id}
+        # Generate unique Registration Request ID
+        urr_id = str(uuid.uuid4())
+        
+        # Store complete Telegram profile data
+        registration_request = {
+            "urr_id": urr_id,
+            "telegram_user_id": user_data.get("id"),
+            "telegram_username": user_data.get("username"),
+            "first_name": user_data.get("first_name"),
+            "last_name": user_data.get("last_name"),
+            "language_code": user_data.get("language_code", "en"),
+            "is_premium": user_data.get("is_premium", False),
+            # Additional fields from Telegram (if available)
+            "email": user_data.get("email"),  # From Telegram if available
+            "phone": user_data.get("phone"),  # From Telegram if available
+            # GPS Location (if available from Telegram)
+            "latitude": user_data.get("latitude"),
+            "longitude": user_data.get("longitude"),
+            "location": user_data.get("location"),
+            # Store all additional Telegram data
+            "telegram_data": user_data,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),  # 24h expiry
+            "status": "pending"
+        }
+        
+        # Store in registration_requests collection
+        await db.registration_requests.insert_one(registration_request)
+        
+        # Also update telegram_users for backward compatibility
+        await db.telegram_users.update_one(
+            {"telegram_user_id": user_data.get("id")},
+            {"$set": {
+                "telegram_user_id": user_data.get("id"),
+                "telegram_username": user_data.get("username"),
+                "first_name": user_data.get("first_name"),
+                "last_name": user_data.get("last_name"),
+                "language_code": user_data.get("language_code", "en"),
+                "is_premium": user_data.get("is_premium", False),
+                "collected_at": datetime.now(timezone.utc),
+                "registration_pending": True
+            }},
+            upsert=True
         )
         
-        if not telegram_profile:
+        return {
+            "urr_id": urr_id,
+            "registration_url": f"https://putana.date/registrationOfNewUser?urr_id={urr_id}"
+        }
+    except Exception as e:
+        logging.error(f"Error creating registration request: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create registration request: {str(e)}")
+
+@api_router.get("/registrationOfNewUser")
+async def get_registration_form_data(urr_id: str = None, telegram_user_id: int = None):
+    """✅ PENALTY4: Get Telegram user data by URR_ID or telegram_user_id (backward compat)"""
+    try:
+        registration_request = None
+        
+        # Try URR_ID first (new method)
+        if urr_id:
+            registration_request = await db.registration_requests.find_one({"urr_id": urr_id})
+        
+        # Fallback to telegram_user_id (backward compatibility)
+        if not registration_request and telegram_user_id:
+            telegram_profile = await db.telegram_users.find_one(
+                {"telegram_user_id": telegram_user_id}
+            )
+            if telegram_profile:
+                # Convert to registration request format
+                registration_request = {
+                    "telegram_user_id": telegram_user_id,
+                    "telegram_username": telegram_profile.get("telegram_username"),
+                    "first_name": telegram_profile.get("first_name"),
+                    "last_name": telegram_profile.get("last_name"),
+                    "language_code": telegram_profile.get("language_code", "en"),
+                    "telegram_data": telegram_profile
+                }
+        
+        if not registration_request:
             raise HTTPException(
                 status_code=404, 
-                detail="Telegram profile not found. Please call the bot first."
+                detail="Registration request not found. Please call the bot first."
             )
         
-        telegram_first_name = telegram_profile.get("first_name", "")
+        telegram_first_name = registration_request.get("first_name", "")
         
-        # ✅ CRITICAL: Check name availability (KISS: Simple check)
-        if not telegram_first_name or not telegram_first_name.strip():
-            name_available = {
-                "available": False,
-                "suggestion": None,
-                "message": "Name cannot be empty"
-            }
-        else:
-            # Case-insensitive check
+        # ✅ Check name availability (default to telegram_user_id as username)
+        default_username = str(registration_request.get("telegram_user_id", ""))
+        name_available = True
+        suggestion = default_username
+        name_message = None
+        
+        if telegram_first_name:
+            # Check if Telegram first_name is available
             existing_user = await db.users.find_one({
                 "name": {"$regex": f"^{telegram_first_name}$", "$options": "i"}
             })
             
             if existing_user:
-                name_available = {
-                    "available": False,
-                    "suggestion": None,
-                    "message": f"Name '{telegram_first_name}' is already taken. Please choose a different name."
-                }
+                name_available = False
+                suggestion = default_username  # Use telegram_user_id instead
+                name_message = f"Name '{telegram_first_name}' is already taken. Default username will be your Telegram User ID: {default_username}"
             else:
-                name_available = {
-                    "available": True,
-                    "suggestion": telegram_first_name,
-                    "message": None
-                }
+                suggestion = telegram_first_name
         
+        # Return ALL Telegram data
         return {
-            "telegram_user_id": telegram_user_id,
-            "telegram_username": telegram_profile.get("telegram_username"),
-            "first_name": telegram_profile.get("first_name"),
-            "last_name": telegram_profile.get("last_name"),
-            "language_code": telegram_profile.get("language_code", "en"),
-            "name_available": name_available["available"],
-            "suggested_name": name_available["suggestion"],
-            "name_message": name_available["message"]
+            "urr_id": registration_request.get("urr_id"),
+            "telegram_user_id": registration_request.get("telegram_user_id"),
+            "telegram_username": registration_request.get("telegram_username"),
+            "first_name": registration_request.get("first_name"),
+            "last_name": registration_request.get("last_name"),
+            "language_code": registration_request.get("language_code", "en"),
+            "is_premium": registration_request.get("is_premium", False),
+            "email": registration_request.get("email"),  # From Telegram if available
+            "phone": registration_request.get("phone"),  # From Telegram if available
+            "latitude": registration_request.get("latitude"),
+            "longitude": registration_request.get("longitude"),
+            "location": registration_request.get("location"),
+            "name_available": name_available,
+            "suggested_name": suggestion,  # Default to telegram_user_id
+            "default_username": default_username,
+            "name_message": name_message,
+            "telegram_data": registration_request.get("telegram_data", {})  # Full Telegram data
         }
     except HTTPException:
         raise
@@ -408,67 +486,82 @@ async def register_user(registration: UserRegistration):
 
 @api_router.post("/register-telegram", response_model=TokenResponse)
 async def register_telegram_user(registration: TelegramUserRegistration):
-    """✅ PENALTY3: Register Telegram user directly without OTP - already validated"""
+    """✅ PENALTY4: Register Telegram user directly - ALL data from stored URR_ID, only password editable"""
     try:
-        # ✅ CRITICAL: Check name uniqueness
-        existing_user_by_name = await db.users.find_one({
-            "name": {"$regex": f"^{registration.name}$", "$options": "i"}
-        })
+        # Get registration request by URR_ID
+        registration_request = await db.registration_requests.find_one({"urr_id": registration.urr_id})
         
-        if existing_user_by_name:
+        if not registration_request:
             raise HTTPException(
-                status_code=400,
-                detail=f"Name '{registration.name}' is already taken. Please choose a different name."
+                status_code=404,
+                detail="Registration request not found or expired. Please start registration again."
             )
         
-        # Check if user already exists by email
-        existing_user = await db.users.find_one({"email": registration.email})
-        if existing_user:
-            raise HTTPException(status_code=400, detail="User with this email already exists")
+        # Check if request expired
+        expires_at = datetime.fromisoformat(registration_request['expires_at'])
+        if datetime.now(timezone.utc) > expires_at:
+            raise HTTPException(
+                status_code=400,
+                detail="Registration request expired. Please start registration again."
+            )
+        
+        # Extract all data from stored Telegram data
+        telegram_data = registration_request.get('telegram_data', {})
+        telegram_user_id = registration_request.get('telegram_user_id')
+        
+        # Default username to telegram_user_id
+        username = str(telegram_user_id)
+        email = registration_request.get('email') or telegram_data.get('email') or f"user{telegram_user_id}@telegram.local"
+        phone = registration_request.get('phone') or telegram_data.get('phone') or ""
         
         # Check if Telegram user already registered
         existing_telegram_user = await db.users.find_one({
             "$or": [
-                {"telegram_user_id": registration.telegram_user_id},
-                {"telegram_chat_id": str(registration.telegram_user_id)}
+                {"telegram_user_id": telegram_user_id},
+                {"telegram_chat_id": str(telegram_user_id)}
             ]
         })
         if existing_telegram_user:
             raise HTTPException(status_code=400, detail="This Telegram account is already registered")
         
-        # Get Telegram profile data
-        telegram_profile = await db.telegram_users.find_one(
-            {"telegram_user_id": registration.telegram_user_id}
-        )
-        
-        if not telegram_profile:
-            raise HTTPException(
-                status_code=404,
-                detail="Telegram profile not found. Please call the bot first."
-            )
-        
-        # Create user immediately (no OTP needed - validated from Telegram)
+        # Create user immediately (no validations - all from Telegram)
         user = User(
-            name=registration.name,
-            email=registration.email,
-            phone=registration.phone,
-            telegram_chat_id=str(registration.telegram_user_id),
+            name=username,  # Default to telegram_user_id
+            email=email,
+            phone=phone,
+            telegram_chat_id=str(telegram_user_id),
             is_verified=True  # ✅ Already validated via Telegram
         )
         
-        # Save user with all Telegram data
+        # Save user with ALL Telegram data (no validations!)
         user_doc = user.model_dump()
-        user_doc['telegram_user_id'] = registration.telegram_user_id
-        user_doc['telegram_username'] = telegram_profile.get('telegram_username')
-        user_doc['first_name'] = telegram_profile.get('first_name')
-        user_doc['last_name'] = telegram_profile.get('last_name')
-        user_doc['language_code'] = telegram_profile.get('language_code', 'en')
-        user_doc['is_premium'] = telegram_profile.get('is_premium', False)
+        user_doc['telegram_user_id'] = telegram_user_id
+        user_doc['telegram_username'] = registration_request.get('telegram_username')
+        user_doc['first_name'] = registration_request.get('first_name')
+        user_doc['last_name'] = registration_request.get('last_name')
+        user_doc['language_code'] = registration_request.get('language_code', 'en')
+        user_doc['is_premium'] = registration_request.get('is_premium', False)
+        user_doc['password_hash'] = registration.password  # Store password (should hash in production!)
+        
+        # Additional fields from Telegram
+        user_doc['latitude'] = registration_request.get('latitude')
+        user_doc['longitude'] = registration_request.get('longitude')
+        user_doc['location'] = registration_request.get('location')
+        user_doc['bank_id'] = telegram_data.get('bank_id')  # If available
+        user_doc['driver_license'] = telegram_data.get('driver_license')  # If available
+        user_doc['nationality'] = telegram_data.get('nationality')  # If available
+        user_doc['supported_languages'] = [registration_request.get('language_code', 'en')]  # Array
         
         user_doc['created_at'] = user_doc['created_at'].isoformat()
         user_doc['updated_at'] = user_doc['updated_at'].isoformat()
         
         await db.users.insert_one(user_doc)
+        
+        # Mark registration request as completed
+        await db.registration_requests.update_one(
+            {"urr_id": registration.urr_id},
+            {"$set": {"status": "completed"}}
+        )
         
         # Create JWT token
         token_data = {"sub": user.id, "email": user.email}
