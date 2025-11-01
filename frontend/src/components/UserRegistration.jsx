@@ -473,7 +473,15 @@ const UserRegistration = () => {
 
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.detail || 'Registration failed');
+          const errorMessage = errorData.detail || 'Registration failed';
+          // ✅ Better error messages for common cases
+          if (errorMessage.includes('already registered') || errorMessage.includes('already exists')) {
+            throw new Error(`${errorMessage} Please log in or use a different account.`);
+          }
+          if (errorMessage.includes('already taken')) {
+            throw new Error(errorMessage);
+          }
+          throw new Error(errorMessage);
         }
 
         const data = await response.json();
