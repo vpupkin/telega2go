@@ -339,7 +339,8 @@ const UserRegistration = () => {
           } else if (errorMessage.includes('Password')) {
             errorMessage = errorMessage; // Keep original password error
           } else if (errorMessage.includes('already taken') || errorMessage.includes('Username')) {
-            errorMessage = errorMessage; // Keep original username error
+            // ✅ Username conflict - suggest changing username
+            errorMessage = `${errorMessage}\n\n💡 Please enter a different username in the "Username on Site" field above.`;
           } else if (response.status === 400) {
             // Generic 400 - add more context
             errorMessage = `${errorMessage} (Please check your registration data and try again)`;

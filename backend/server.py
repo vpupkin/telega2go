@@ -517,18 +517,22 @@ async def register_telegram_user(registration: TelegramUserRegistration):
         # ✅ Validate password length (additional check) - WRAP EVERYTHING
         try:
             if not registration.password:
-                raise HTTPException(status_code=400, detail="Password is required")
+                error_msg = "Password is required"
+                logging.warning(f"Register Telegram User - {error_msg}")
+                raise HTTPException(status_code=400, detail=error_msg)
             
             password_stripped = registration.password.strip()
             password_valid = len(password_stripped) >= 6
             
             if not password_valid:
+                error_msg = f"Password must be at least 6 characters (received {len(password_stripped)})"
+                logging.warning(f"Register Telegram User - {error_msg}")
                 raise HTTPException(
                     status_code=400,
-                    detail="Password must be at least 6 characters"
+                    detail=error_msg
                 )
             
-            logging.info("Step 1: Password validated")
+            logging.info(f"Step 1: Password validated (length: {len(password_stripped)})")
         except HTTPException:
             raise
         except Exception as pwd_err:
@@ -1049,9 +1053,12 @@ async def get_user_profile(token: str = Depends(lambda: None)):
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        # Convert ISO string timestamps back to datetime objects
-        if isinstance(user['created_at'], str):
-            user['created_at'] = datetime.fromisoformat(user['created_at'])
+        # ✅ CRITICAL FIX: UserResponse.created_at expects STRING, not datetime!
+        # Keep created_at as ISO string (don't convert back to datetime)
+        if isinstance(user.get('created_at'), datetime):
+            user['created_at'] = user['created_at'].isoformat()
+        elif not isinstance(user.get('created_at'), str):
+            user['created_at'] = datetime.now(timezone.utc).isoformat()
         
         return UserResponse(**user)
     except HTTPException:
@@ -1066,14 +1073,21 @@ async def list_users():
     try:
         users = await db.users.find({}, {"_id": 0}).to_list(length=1000)  # Limit to 1000 users
         
-        # Convert ISO string timestamps back to datetime objects
+        # ✅ CRITICAL FIX: UserResponse.created_at expects STRING, not datetime!
+        # Keep created_at as ISO string (don't convert back to datetime)
         for user in users:
-            if isinstance(user.get('created_at'), str):
-                user['created_at'] = datetime.fromisoformat(user['created_at'])
+            if isinstance(user.get('created_at'), datetime):
+                # If it's a datetime object (from motor), convert to ISO string
+                user['created_at'] = user['created_at'].isoformat()
+            elif not isinstance(user.get('created_at'), str):
+                # If it's not a string, convert to ISO string
+                user['created_at'] = datetime.now(timezone.utc).isoformat()
         
         return [UserResponse(**user) for user in users]
     except Exception as e:
         logging.error(f"Error listing users: {e}")
+        import traceback
+        logging.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to list users: {str(e)}")
 
 @api_router.get("/users/{user_id}", response_model=UserResponse)
@@ -1084,9 +1098,14 @@ async def get_user(user_id: str):
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        # Convert ISO string timestamps back to datetime objects
-        if isinstance(user.get('created_at'), str):
-            user['created_at'] = datetime.fromisoformat(user['created_at'])
+        # ✅ CRITICAL FIX: UserResponse.created_at expects STRING, not datetime!
+        # Keep created_at as ISO string (don't convert back to datetime)
+        if isinstance(user.get('created_at'), datetime):
+            # If it's a datetime object (from motor), convert to ISO string
+            user['created_at'] = user['created_at'].isoformat()
+        elif not isinstance(user.get('created_at'), str):
+            # If it's not a string, convert to ISO string
+            user['created_at'] = datetime.now(timezone.utc).isoformat()
         
         return UserResponse(**user)
     except HTTPException:
@@ -1175,8 +1194,12 @@ async def update_user(user_id: str, user_update: UserUpdate):
         
         # Fetch and return updated user
         updated_user = await db.users.find_one({"id": user_id}, {"_id": 0})
-        if isinstance(updated_user.get('created_at'), str):
-            updated_user['created_at'] = datetime.fromisoformat(updated_user['created_at'])
+        # ✅ CRITICAL FIX: UserResponse.created_at expects STRING, not datetime!
+        # Keep created_at as ISO string (don't convert back to datetime)
+        if isinstance(updated_user.get('created_at'), datetime):
+            updated_user['created_at'] = updated_user['created_at'].isoformat()
+        elif not isinstance(updated_user.get('created_at'), str):
+            updated_user['created_at'] = datetime.now(timezone.utc).isoformat()
         
         return UserResponse(**updated_user)
     except HTTPException:
