@@ -836,9 +836,24 @@ async def resolve_telegram_ids(chat_id: Optional[str] = None, username: Optional
 
 @api_router.post("/register")
 async def register_user(registration: UserRegistration):
-    """Start user registration process and send OTP - ✅ PENALTY FIX: Resolve missing ID"""
-    # ✅ PENALTY FIX: Validate exactly ONE identifier provided
-    # Handle None, empty string, or whitespace-only strings
+    """Start user registration process and send OTP - RESTORED: Simple pre-googol logic + optional resolution"""
+    # ✅ RESTORED: Pre-googol simple validation - check name uniqueness FIRST
+    existing_user_by_name = await db.users.find_one({
+        "name": {"$regex": f"^{registration.name}$", "$options": "i"}
+    })
+    
+    if existing_user_by_name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Name '{registration.name}' is already taken. Please choose a different name."
+        )
+    
+    # Check if user already exists by email
+    existing_user = await db.users.find_one({"email": registration.email})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="User with this email already exists")
+    
+    # ✅ RESTORED: Simple pre-googol logic - telegram_chat_id is primary
     chat_id_val = registration.telegram_chat_id
     username_val = registration.telegram_username
     
@@ -849,65 +864,49 @@ async def register_user(registration: UserRegistration):
     has_chat_id = bool(chat_id_clean)
     has_username = bool(username_clean)
     
-    if not has_chat_id and not has_username:
-        raise HTTPException(status_code=422, detail="Either telegram_chat_id OR telegram_username is required")
-    
-    # ✅ PENALTY FIX: Reject if BOTH provided (form should prevent this)
-    if has_chat_id and has_username:
-        raise HTTPException(
-            status_code=422,
-            detail="Please provide EITHER telegram_chat_id OR telegram_username, not both. Use the toggle to select one."
-        )
-    
-    # ✅ PENALTY FIX: Try to resolve missing ID via Telegram API (optional - graceful failure)
+    # ✅ If username provided but no chat_id, try to resolve (OPTIONAL - graceful failure)
     chat_id = chat_id_clean if has_chat_id else None
     username = username_clean if has_username else None
     
-    try:
-        resolved = await resolve_telegram_ids(
-            chat_id=chat_id,
-            username=username
-        )
-        # Use resolved IDs if available
-        chat_id = resolved.get("chat_id") or chat_id
-        username = resolved.get("username") or username
-    except HTTPException as e:
-        # If resolution fails, log but continue with provided ID
-        logger.warning(f"⚠️ Telegram ID resolution failed: {e.detail}, using provided ID")
-        # Only fail if we don't have chat_id (required for OTP)
-        if not chat_id:
-            raise HTTPException(status_code=422, detail=f"Could not resolve chat_id: {e.detail}")
-    except Exception as e:
-        # Other errors - log but continue with provided ID
-        logger.warning(f"⚠️ Telegram ID resolution error: {e}, using provided ID")
-        if not chat_id:
-            raise HTTPException(status_code=422, detail="Could not resolve chat_id. Please check your Telegram ID.")
+    if not chat_id and username:
+        # Try to resolve username to chat_id (ENHANCEMENT - optional)
+        try:
+            resolved = await resolve_telegram_ids(chat_id=None, username=username)
+            chat_id = resolved.get("chat_id") or None
+            # If resolution succeeds, update username too
+            if resolved.get("username"):
+                username = resolved.get("username")
+        except HTTPException as e:
+            # Resolution failed - provide helpful error message
+            logger.warning(f"⚠️ Could not resolve username {username} to chat_id: {e.detail}")
+            raise HTTPException(
+                status_code=422,
+                detail=f"Could not resolve username {username} to Chat ID. Please switch to 'Chat ID' mode and enter your Telegram Chat ID (get it from @userinfobot). Error: {e.detail}"
+            )
+        except Exception as e:
+            # Other errors - log and provide helpful message
+            logger.warning(f"⚠️ Username resolution error for {username}: {e}")
+            raise HTTPException(
+                status_code=422,
+                detail=f"Could not resolve username {username} to Chat ID. Please switch to 'Chat ID' mode and enter your Telegram Chat ID directly (get it from @userinfobot)."
+            )
     
-    # ✅ Final check: chat_id is REQUIRED for OTP delivery
+    # ✅ CRITICAL: chat_id is REQUIRED for OTP delivery (restore pre-googol requirement)
     if not chat_id:
-        raise HTTPException(status_code=422, detail="telegram_chat_id is required for OTP delivery. Please provide a valid Chat ID.")
+        raise HTTPException(
+            status_code=422, 
+            detail="telegram_chat_id is required for OTP delivery. Please switch to 'Chat ID' mode and enter your Telegram Chat ID (get it from @userinfobot)."
+        )
     
-    # ✅ CRITICAL: Check if Telegram user already exists (BEFORE other checks)
-    # Build query - only check fields that have values
-    telegram_query = {"$or": []}
+    # ✅ NEW: Check if Telegram user already exists (if resolution gave us both IDs)
     if chat_id:
-        telegram_query["$or"].extend([
-            {"telegram_chat_id": chat_id},
-            {"telegram_chat_id": str(chat_id)}
-        ])
-    if username:
-        username_clean = username.lstrip('@')
-        telegram_query["$or"].extend([
-            {"telegram_username": username},
-            {"telegram_username": username_clean}
-        ])
-    
-    if telegram_query["$or"]:
         existing_telegram_user = await db.users.find_one({
-            **telegram_query,
+            "$or": [
+                {"telegram_chat_id": chat_id},
+                {"telegram_chat_id": str(chat_id)},
+            ],
             "is_verified": True
         })
-        
         if existing_telegram_user:
             raise HTTPException(
                 status_code=400,
@@ -934,16 +933,17 @@ async def register_user(registration: UserRegistration):
     import random
     otp = str(random.randint(100000, 999999))
     
-    # Create registration session - store BOTH resolved IDs
+    # ✅ RESTORED: Pre-googol simple session creation
     user_data = registration.model_dump()
-    # ✅ PENALTY FIX: Store BOTH chat_id and username (one from user, one resolved)
+    # Store resolved/enhanced IDs if available
     user_data['telegram_chat_id'] = chat_id
-    user_data['telegram_username'] = username
+    if username:
+        user_data['telegram_username'] = username
     
     session_data = {
         "id": str(uuid.uuid4()),
         "email": registration.email,
-        "user_data": user_data,  # ✅ Only contains ONE identifier
+        "user_data": user_data,
         "otp": otp,
         "otp_sent": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -953,7 +953,7 @@ async def register_user(registration: UserRegistration):
     # Store session
     await db.registration_sessions.insert_one(session_data)
     
-    # Send OTP via Telegram (requires chat_id)
+    # ✅ RESTORED: Pre-googol simple OTP sending
     otp_sent = await send_otp_via_telegram(chat_id, otp)
     
     if not otp_sent:
