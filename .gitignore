@@ -78,6 +78,10 @@ agenthub/agents/youtube/db
 
 # Mobile development
 android-sdk/ -e 
+
+# Backup directories (from deploy_bulletproof.sh and start.sh)
+_backup_*/
+
 # Environment files
 *.env
 *.env.*
