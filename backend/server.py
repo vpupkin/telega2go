@@ -88,7 +88,9 @@ class UserRegistration(BaseModel):
     name: str
     email: EmailStr
     phone: str
-    telegram_chat_id: str
+    # ✅ KISS: Only ONE field - EITHER chat_id OR username (toggle in form)
+    telegram_chat_id: Optional[str] = None
+    telegram_username: Optional[str] = None
 
 class TelegramUserRegistration(BaseModel):
     """✅ PENALTY4: Registration without OTP - user already validated from Telegram"""
@@ -742,6 +744,29 @@ async def get_registration_form_data(urr_id: str = None, telegram_user_id: int =
 @api_router.post("/register")
 async def register_user(registration: UserRegistration):
     """Start user registration process and send OTP - KISS: Simple validation"""
+    # ✅ KISS: Validate exactly ONE identifier provided (MUST BE FIRST!)
+    chat_id_val = registration.telegram_chat_id
+    username_val = registration.telegram_username
+    
+    has_chat_id = bool(chat_id_val and str(chat_id_val).strip())
+    has_username = bool(username_val and str(username_val).strip())
+    
+    if not has_chat_id and not has_username:
+        raise HTTPException(status_code=422, detail="Either telegram_chat_id OR telegram_username is required")
+    
+    if has_chat_id and has_username:
+        raise HTTPException(status_code=422, detail="Only ONE identifier allowed: telegram_chat_id OR telegram_username, not both")
+    
+    # ✅ KISS: Resolve username to chat_id if needed (for OTP delivery)
+    chat_id = str(chat_id_val).strip() if has_chat_id else None
+    if has_username and not chat_id:
+        # TODO: Implement username resolution via Telegram Bot API
+        # For now: username requires chat_id for OTP
+        raise HTTPException(
+            status_code=422, 
+            detail="telegram_chat_id is required for OTP delivery when using username. Please use Chat ID option in the form."
+        )
+    
     # ✅ CRITICAL: Check name uniqueness (KISS: Case-insensitive check)
     existing_user_by_name = await db.users.find_one({
         "name": {"$regex": f"^{registration.name}$", "$options": "i"}
@@ -762,11 +787,18 @@ async def register_user(registration: UserRegistration):
     import random
     otp = str(random.randint(100000, 999999))
     
-    # Create registration session
+    # Create registration session - store only the identifier that was provided
+    user_data = registration.model_dump()
+    # ✅ KISS: Remove the unused identifier to ensure only ONE is stored
+    if chat_id:
+        user_data.pop('telegram_username', None)
+    else:
+        user_data.pop('telegram_chat_id', None)
+    
     session_data = {
         "id": str(uuid.uuid4()),
         "email": registration.email,
-        "user_data": registration.model_dump(),
+        "user_data": user_data,  # ✅ Only contains ONE identifier
         "otp": otp,
         "otp_sent": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -776,8 +808,8 @@ async def register_user(registration: UserRegistration):
     # Store session
     await db.registration_sessions.insert_one(session_data)
     
-    # Send OTP via Telegram
-    otp_sent = await send_otp_via_telegram(registration.telegram_chat_id, otp)
+    # Send OTP via Telegram (requires chat_id)
+    otp_sent = await send_otp_via_telegram(chat_id, otp)
     
     if not otp_sent:
         raise HTTPException(status_code=500, detail="Failed to send OTP via Telegram")

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,9 +11,13 @@ import { CheckCircle, User, Mail, Phone, Shield, ArrowRight, ArrowLeft, AlertCir
 const UserRegistration = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const urrIdParam = searchParams.get('urr_id'); // ✅ PENALTY4: URR_ID
   const telegramUserIdParam = searchParams.get('telegram_user_id'); // Backward compat
   const tokenParam = searchParams.get('token'); // ✅ WelcomeBack: JWT token from magic link
+  
+  // ✅ NEW: Detect if this is the direct Telegram registration route
+  const isDirectTelegramRegistration = location.pathname === '/telegram-register';
   
   const [step, setStep] = useState(1); // 1: Registration Form, 2: OTP Verification, 3: Success
   const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://putana.date:55552';
@@ -29,11 +33,13 @@ const UserRegistration = () => {
     // All other fields from Telegram (read-only)
     telegram_user_id: '',
     username: '',
+    name: '', // ✅ NEW: For direct Telegram registration
     email: '',
     phone: '',
     first_name: '',
     last_name: '',
     telegram_username: '',
+    telegram_chat_id: '', // ✅ NEW: For direct Telegram registration
     language_code: '',
     bank_id: '',
     driver_license: '',
@@ -71,6 +77,12 @@ const UserRegistration = () => {
     // Skip if token is present (user is being redirected)
     if (tokenParam) return;
     
+    // ✅ NEW: Skip loading Telegram data for direct Telegram registration (user will enter manually)
+    if (isDirectTelegramRegistration) {
+      console.log('📱 Direct Telegram registration - user will enter data manually');
+      return;
+    }
+    
     console.log('🔍 Registration form loaded:', {
       urrIdParam,
       telegramUserIdParam,
@@ -86,7 +98,7 @@ const UserRegistration = () => {
     } else {
       console.warn('⚠️ No URR_ID or telegram_user_id in URL parameters');
     }
-  }, [urrIdParam, telegramUserIdParam, tokenParam]);
+  }, [urrIdParam, telegramUserIdParam, tokenParam, isDirectTelegramRegistration]);
 
   // ✅ PENALTY4: Load data by URR_ID (primary method)
   const loadTelegramDataByUrrId = async (urrId) => {
@@ -281,8 +293,13 @@ const UserRegistration = () => {
   const handleRegistration = async (e) => {
     e.preventDefault();
 
+    // ✅ NEW: Direct Telegram Registration - validate with toggle
+    if (isDirectTelegramRegistration && !urrIdParam) {
+      if (!validateForm()) return;
+      // validateForm already checks for telegram_username or telegram_chat_id based on useUsername
+    }
     // ✅ PENALTY4: Only validate password and username if URR_ID present (Telegram registration)
-    if (urrIdParam) {
+    else if (urrIdParam) {
       // ✅ CRITICAL VALIDATION: Ensure URR_ID is present
       if (!urrIdParam || !urrIdParam.trim()) {
         setError('Registration request ID (URR_ID) is missing. Please start registration again via Telegram bot.');
@@ -424,8 +441,40 @@ const UserRegistration = () => {
         const data = await response.json();
         setSuccess('Registration completed successfully!');
         setStep(3);
+      } else if (isDirectTelegramRegistration) {
+        // ✅ NEW: Direct Telegram Registration flow with OTP
+        // ✅ CRITICAL: Only send ONE field - either telegram_username OR telegram_chat_id, NEVER both!
+        const payload = {
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+        };
+        
+        // ✅ Only add ONE identifier based on toggle
+        if (useUsername) {
+          payload.telegram_username = formData.telegram_username;
+        } else {
+          payload.telegram_chat_id = formData.telegram_chat_id;
+        }
+        
+        const response = await fetch(`${API_BASE}/register`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Registration failed');
+        }
+
+        const data = await response.json();
+        setSuccess('Registration initiated! Check your Telegram for OTP.');
+        setStep(2); // Move to OTP verification step
       } else {
-        // Regular registration flow with OTP
+        // Regular registration flow with OTP (no Telegram)
         const response = await fetch(`${API_BASE}/register`, {
           method: 'POST',
           headers: {
@@ -434,12 +483,7 @@ const UserRegistration = () => {
           body: JSON.stringify({
             name: formData.name,
             email: formData.email,
-            phone: formData.phone,
-            // Only send the relevant field based on user choice
-            ...(useUsername 
-              ? { telegram_username: formData.telegram_username }
-              : { telegram_chat_id: formData.telegram_chat_id }
-            )
+            phone: formData.phone
           }),
         });
 
@@ -539,13 +583,21 @@ const UserRegistration = () => {
           <User className="w-6 h-6 text-blue-600" />
         </div>
         <CardTitle className="text-2xl font-bold">
-          {urrIdParam ? '🎉 Welcome to PUTANA.DATE!' : telegramUserIdParam ? 'Complete Your Registration' : 'Create Account'}
+          {urrIdParam 
+            ? '🎉 Welcome to PUTANA.DATE!' 
+            : telegramUserIdParam 
+            ? 'Complete Your Registration' 
+            : isDirectTelegramRegistration
+            ? '📱 Telegram Registration'
+            : 'Create Account'}
         </CardTitle>
         <CardDescription>
           {urrIdParam 
             ? 'Review your profile data and set your password to complete registration'
             : telegramUserIdParam 
             ? 'Welcome! Please complete your registration with your details'
+            : isDirectTelegramRegistration
+            ? 'Register with Telegram and verify via OTP'
             : 'Register with your details and verify via Telegram OTP'}
         </CardDescription>
       </CardHeader>
@@ -776,8 +828,128 @@ const UserRegistration = () => {
             </div>
           )}
 
-          {/* Regular registration form (when no URR_ID) */}
-          {!urrIdParam && (
+          {/* ✅ NEW: Direct Telegram Registration Form (with toggle) */}
+          {isDirectTelegramRegistration && !urrIdParam && !telegramUserIdParam && (
+            <>
+              <div className="space-y-4 p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg border-2 border-purple-200">
+                <h3 className="text-lg font-bold text-purple-900 mb-4 text-center">📱 Telegram Registration</h3>
+                <p className="text-sm text-gray-700 mb-4 text-center">
+                  Choose how to identify yourself on Telegram
+                </p>
+                
+                {/* Toggle Buttons */}
+                <div className="flex gap-2 mb-4">
+                  <Button
+                    type="button"
+                    variant={useUsername ? "default" : "outline"}
+                    onClick={() => setUseUsername(true)}
+                    className="flex-1"
+                  >
+                    @username
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={!useUsername ? "default" : "outline"}
+                    onClick={() => setUseUsername(false)}
+                    className="flex-1"
+                  >
+                    Chat ID
+                  </Button>
+                </div>
+
+                {/* Conditional Telegram Input Fields */}
+                {useUsername ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="telegram_username">Telegram Username *</Label>
+                    <Input
+                      id="telegram_username"
+                      name="telegram_username"
+                      placeholder="@username"
+                      value={formData.telegram_username}
+                      onChange={handleInputChange}
+                      required
+                    />
+                    <p className="text-xs text-gray-600">
+                      Enter your Telegram username (e.g., @username)
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="telegram_chat_id">Telegram Chat ID *</Label>
+                    <Input
+                      id="telegram_chat_id"
+                      name="telegram_chat_id"
+                      placeholder="123456789"
+                      value={formData.telegram_chat_id}
+                      onChange={handleInputChange}
+                      required
+                    />
+                    <p className="text-xs text-gray-600">
+                      Get your Chat ID from @userinfobot on Telegram
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name *</Label>
+                <Input
+                  id="name"
+                  name="name"
+                  type="text"
+                  placeholder="Enter your full name"
+                  value={formData.name}
+                  onChange={handleInputChange}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="username">Username on Site (Unique User ID) *</Label>
+                <Input
+                  id="username"
+                  name="username"
+                  type="text"
+                  placeholder="Choose your unique username (will be validated for uniqueness)"
+                  value={formData.username}
+                  onChange={handleInputChange}
+                  required
+                />
+                <p className="text-xs text-gray-600">
+                  This will be your unique identifier. Must be unique across all users.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="email">Email Address *</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="Enter your email"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone Number *</Label>
+                <Input
+                  id="phone"
+                  name="phone"
+                  type="tel"
+                  placeholder="Enter your phone number"
+                  value={formData.phone}
+                  onChange={handleInputChange}
+                  required
+                />
+              </div>
+            </>
+          )}
+
+          {/* Regular registration form (when no URR_ID and not direct Telegram registration) */}
+          {!urrIdParam && !isDirectTelegramRegistration && (
             <>
               {/* Backward compatibility: Old form for telegram_user_id */}
               {telegramUserIdParam && telegramData && (
@@ -840,8 +1012,6 @@ const UserRegistration = () => {
             </>
           )}
 
-          {/* ✅ Telegram-specific fields removed - all data comes from Telegram */}
-
           {error && (
             <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
@@ -857,11 +1027,13 @@ const UserRegistration = () => {
 
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading 
-              ? (urrIdParam ? 'Registering...' : telegramUserIdParam ? 'Registering...' : 'Sending OTP...') 
+              ? (urrIdParam ? 'Registering...' : telegramUserIdParam ? 'Registering...' : isDirectTelegramRegistration ? 'Sending OTP...' : 'Sending OTP...') 
               : (urrIdParam 
                   ? '✅ Complete Registration & Welcome to PUTANA.DATE!' 
                   : telegramUserIdParam 
                   ? '✅ Complete Registration (No OTP Needed)' 
+                  : isDirectTelegramRegistration
+                  ? '📱 Register with Telegram & Send OTP'
                   : 'Register & Send OTP')
             }
             <ArrowRight className="ml-2 h-4 w-4" />
