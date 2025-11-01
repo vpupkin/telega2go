@@ -68,6 +68,10 @@ services:
       - CORS_ORIGINS=http://localhost:55553,http://localhost:80,https://putana.date
       - JWT_SECRET=your-super-secret-jwt-key-change-in-production
       - OTP_GATEWAY_URL=https://putana.date/otp
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-https://putana.date/api/auth/google/callback}
+      - FRONTEND_URL=${FRONTEND_URL:-https://putana.date}
     networks:
       - telega2go-network
     healthcheck:

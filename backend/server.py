@@ -319,10 +319,29 @@ async def verify_oauth_state(state: str) -> bool:
         return False
     # Check if expired
     expires_at = state_doc.get("expires_at")
-    if expires_at and datetime.now(timezone.utc) > expires_at:
-        # Remove expired state
-        await db.oauth_states.delete_one({"state": state})
-        return False
+    if expires_at:
+        # Ensure expires_at is timezone-aware (handle both naive and aware datetimes)
+        if isinstance(expires_at, datetime):
+            if expires_at.tzinfo is None:
+                # Timezone-naive datetime - assume UTC
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            elif expires_at.tzinfo != timezone.utc:
+                # Timezone-aware but not UTC - convert to UTC
+                expires_at = expires_at.astimezone(timezone.utc)
+        elif isinstance(expires_at, str):
+            # If it's a string, parse it
+            try:
+                expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+            except Exception:
+                logger.error(f"Failed to parse expires_at: {expires_at}")
+                return False
+        
+        if datetime.now(timezone.utc) > expires_at:
+            # Remove expired state
+            await db.oauth_states.delete_one({"state": state})
+            return False
     # Remove used state
     await db.oauth_states.delete_one({"state": state})
     return True
