@@ -455,12 +455,16 @@ const UserRegistration = () => {
         };
         
         // ✅ PENALTY FIX: Send ONLY the selected identifier (backend will resolve the other)
-        if (useUsername) {
-          payload.telegram_username = formData.telegram_username;
+        // ✅ CRITICAL: Only include non-empty values to avoid validation issues
+        if (useUsername && formData.telegram_username && formData.telegram_username.trim()) {
+          payload.telegram_username = formData.telegram_username.trim();
           // ✅ NEVER send both - backend resolves chat_id from username
-        } else {
-          payload.telegram_chat_id = formData.telegram_chat_id;
+        } else if (!useUsername && formData.telegram_chat_id && formData.telegram_chat_id.trim()) {
+          payload.telegram_chat_id = formData.telegram_chat_id.trim();
           // ✅ NEVER send both - backend resolves username from chat_id
+        } else {
+          // Neither field has value - should be caught by validation, but add safety check
+          throw new Error('Please provide either Telegram Username or Chat ID');
         }
         
         const response = await fetch(`${API_BASE}/register`, {

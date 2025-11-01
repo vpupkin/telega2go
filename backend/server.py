@@ -838,11 +838,16 @@ async def resolve_telegram_ids(chat_id: Optional[str] = None, username: Optional
 async def register_user(registration: UserRegistration):
     """Start user registration process and send OTP - ✅ PENALTY FIX: Resolve missing ID"""
     # ✅ PENALTY FIX: Validate exactly ONE identifier provided
+    # Handle None, empty string, or whitespace-only strings
     chat_id_val = registration.telegram_chat_id
     username_val = registration.telegram_username
     
-    has_chat_id = bool(chat_id_val and str(chat_id_val).strip())
-    has_username = bool(username_val and str(username_val).strip())
+    # Normalize: treat None, empty string, or whitespace as empty
+    chat_id_clean = str(chat_id_val).strip() if chat_id_val else ""
+    username_clean = str(username_val).strip() if username_val else ""
+    
+    has_chat_id = bool(chat_id_clean)
+    has_username = bool(username_clean)
     
     if not has_chat_id and not has_username:
         raise HTTPException(status_code=422, detail="Either telegram_chat_id OR telegram_username is required")
@@ -855,8 +860,8 @@ async def register_user(registration: UserRegistration):
         )
     
     # ✅ PENALTY FIX: Try to resolve missing ID via Telegram API (optional - graceful failure)
-    chat_id = str(chat_id_val).strip() if has_chat_id else None
-    username = str(username_val).strip() if has_username else None
+    chat_id = chat_id_clean if has_chat_id else None
+    username = username_clean if has_username else None
     
     try:
         resolved = await resolve_telegram_ids(
