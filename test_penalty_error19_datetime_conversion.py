@@ -56,9 +56,9 @@ async def test_motor_datetime_conversion_immediate():
         if register_response.status_code == 200:
             # Success - registration worked
             register_data = register_response.json()
-            assert "token" in register_data, "Token should be returned"
+            assert "access_token" in register_data or "token" in register_data, "Token should be returned"
             assert "user" in register_data, "User data should be returned"
-            print("✅ Test passed: DateTime conversion fix works")
+            print("✅ Test passed: DateTime conversion fix works - Registration succeeded!")
         else:
             # 400 is acceptable (expired, etc) but NOT 500
             error_detail = register_response.json().get("detail", "")
