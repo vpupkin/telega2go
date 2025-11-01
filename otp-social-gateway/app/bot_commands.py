@@ -986,10 +986,10 @@ class FunnyBotCommands:
                                 
                                 # Update initial_message with actual balance data
                                 balance_messages = {
-                                    "en": f"💰 <b>Your Balance</b>\n\n👤 User: <b>{user_name}</b>\n💵 Balance: <b>{balance:.2f} {currency}</b>\n\n⚠️ This message will self-destruct in 5 seconds.",
-                                    "ru": f"💰 <b>Ваш Баланс</b>\n\n👤 Пользователь: <b>{user_name}</b>\n💵 Баланс: <b>{balance:.2f} {currency}</b>\n\n⚠️ Это сообщение самоудалится через 5 секунд.",
-                                    "es": f"💰 <b>Su Saldo</b>\n\n👤 Usuario: <b>{user_name}</b>\n💵 Saldo: <b>{balance:.2f} {currency}</b>\n\n⚠️ Este mensaje se autodestruirá en 5 segundos.",
-                                    "de": f"💰 <b>Ihr Kontostand</b>\n\n👤 Benutzer: <b>{user_name}</b>\n💵 Kontostand: <b>{balance:.2f} {currency}</b>\n\n⚠️ Diese Nachricht wird sich in 5 Sekunden selbst zerstören."
+                                    "en": f"💰 <b>Your Balance</b>\n\n👤 User: <b>{user_name}</b>\n💵 Balance: <tg-spoiler><b>{balance:.2f} {currency}</b></tg-spoiler>\n\n👆 Click to reveal balance\n⚠️ This message will self-destruct in 5 seconds.",
+                                    "ru": f"💰 <b>Ваш Баланс</b>\n\n👤 Пользователь: <b>{user_name}</b>\n💵 Баланс: <tg-spoiler><b>{balance:.2f} {currency}</b></tg-spoiler>\n\n👆 Нажмите, чтобы показать баланс\n⚠️ Это сообщение самоудалится через 5 секунд.",
+                                    "es": f"💰 <b>Su Saldo</b>\n\n👤 Usuario: <b>{user_name}</b>\n💵 Saldo: <tg-spoiler><b>{balance:.2f} {currency}</b></tg-spoiler>\n\n👆 Haga clic para revelar el saldo\n⚠️ Este mensaje se autodestruirá en 5 segundos.",
+                                    "de": f"💰 <b>Ihr Kontostand</b>\n\n👤 Benutzer: <b>{user_name}</b>\n💵 Kontostand: <tg-spoiler><b>{balance:.2f} {currency}</b></tg-spoiler>\n\n👆 Zum Anzeigen des Kontostands klicken\n⚠️ Diese Nachricht wird sich in 5 Sekunden selbst zerstören."
                                 }
                                 
                                 initial_message = balance_messages.get(language_code or "en", balance_messages["en"])
@@ -1234,11 +1234,12 @@ class FunnyBotCommands:
                             logger.info(f"💰 Balance retrieved for user {telegram_user_id}: {balance:.2f} {currency}")
                             
                             # Format balance message with translations
+                            # ✅ Use spoiler tags to hide balance amount until clicked
                             balance_messages = {
-                                "en": f"💰 <b>Your Balance</b>\n\n👤 User: <b>{user_name}</b>\n💵 Balance: <b>{balance:.2f} {currency}</b>\n\n⚠️ This message will self-destruct in 5 seconds.",
-                                "ru": f"💰 <b>Ваш Баланс</b>\n\n👤 Пользователь: <b>{user_name}</b>\n💵 Баланс: <b>{balance:.2f} {currency}</b>\n\n⚠️ Это сообщение самоудалится через 5 секунд.",
-                                "es": f"💰 <b>Su Saldo</b>\n\n👤 Usuario: <b>{user_name}</b>\n💵 Saldo: <b>{balance:.2f} {currency}</b>\n\n⚠️ Este mensaje se autodestruirá en 5 segundos.",
-                                "de": f"💰 <b>Ihr Kontostand</b>\n\n👤 Benutzer: <b>{user_name}</b>\n💵 Kontostand: <b>{balance:.2f} {currency}</b>\n\n⚠️ Diese Nachricht wird sich in 5 Sekunden selbst zerstören."
+                                "en": f"💰 <b>Your Balance</b>\n\n👤 User: <b>{user_name}</b>\n💵 Balance: <tg-spoiler><b>{balance:.2f} {currency}</b></tg-spoiler>\n\n👆 Click to reveal balance\n⚠️ This message will self-destruct in 5 seconds.",
+                                "ru": f"💰 <b>Ваш Баланс</b>\n\n👤 Пользователь: <b>{user_name}</b>\n💵 Баланс: <tg-spoiler><b>{balance:.2f} {currency}</b></tg-spoiler>\n\n👆 Нажмите, чтобы показать баланс\n⚠️ Это сообщение самоудалится через 5 секунд.",
+                                "es": f"💰 <b>Su Saldo</b>\n\n👤 Usuario: <b>{user_name}</b>\n💵 Saldo: <tg-spoiler><b>{balance:.2f} {currency}</b></tg-spoiler>\n\n👆 Haga clic para revelar el saldo\n⚠️ Este mensaje se autodestruirá en 5 segundos.",
+                                "de": f"💰 <b>Ihr Kontostand</b>\n\n👤 Benutzer: <b>{user_name}</b>\n💵 Kontostand: <tg-spoiler><b>{balance:.2f} {currency}</b></tg-spoiler>\n\n👆 Zum Anzeigen des Kontostands klicken\n⚠️ Diese Nachricht wird sich in 5 Sekunden selbst zerstören."
                             }
                             
                             response_text = balance_messages.get(lang, balance_messages["en"])
@@ -1681,23 +1682,32 @@ class FunnyBotCommands:
     async def _auto_delete_message(self, chat_id: str, message_id: int, delay_seconds: int):
         """Auto-delete message after specified delay (in seconds)"""
         try:
-            logger.info(f"⏳ Scheduling auto-delete for message {message_id} in {delay_seconds} seconds")
+            logger.info(f"⏳⏳⏳ AUTO-DELETE TASK STARTED: message_id={message_id}, chat_id={chat_id}, delay={delay_seconds}s")
             await asyncio.sleep(delay_seconds)
+            logger.info(f"⏰⏰⏰ DELAY COMPLETE - Now deleting message {message_id} from chat {chat_id}")
             
-            # Delete the message
+            # ✅ CRITICAL: Use JSON format for deleteMessage (Telegram Bot API requirement)
             async with httpx.AsyncClient(timeout=10.0) as client:
+                delete_url = f"{self.telegram_api_base}/deleteMessage"
+                delete_payload = {
+                    "chat_id": str(chat_id),  # ✅ Ensure string
+                    "message_id": int(message_id)  # ✅ Ensure integer
+                }
+                
+                logger.info(f"🗑️ Calling deleteMessage: {delete_url}, payload={delete_payload}")
                 response = await client.post(
-                    f"{self.telegram_api_base}/deleteMessage",
-                    data={
-                        "chat_id": chat_id,
-                        "message_id": message_id
-                    }
+                    delete_url,
+                    json=delete_payload  # ✅ Use json= not data=
                 )
                 
+                logger.info(f"📥 Delete response: HTTP {response.status_code}")
+                
                 if response.status_code == 200:
-                    logger.info(f"✅ SUCCESS: Auto-deleted balance message {message_id} from chat {chat_id}")
+                    response_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                    logger.info(f"✅✅✅ SUCCESS: Auto-deleted balance message {message_id} from chat {chat_id}, response={response_data}")
                 else:
                     response_text = response.text if hasattr(response, 'text') else 'N/A'
-                    logger.warning(f"⚠️ FAILED to auto-delete message {message_id}: HTTP {response.status_code} - {response_text}")
+                    response_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                    logger.error(f"❌❌❌ FAILED to auto-delete message {message_id}: HTTP {response.status_code}, response={response_data}, text={response_text}")
         except Exception as e:
-            logger.error(f"❌ EXCEPTION in auto-delete for message {message_id}: {e}", exc_info=True)
+            logger.error(f"❌❌❌ EXCEPTION in auto-delete for message {message_id}: {e}", exc_info=True)

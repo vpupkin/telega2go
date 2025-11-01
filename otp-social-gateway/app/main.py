@@ -350,14 +350,43 @@ async def telegram_webhook(request: Request):
             username = user.get("username")
             language_code = user.get("language_code")  # Get user's Telegram language
             
+            # ✅ CRITICAL: Auto-delete Balance messages (self-destruct in 5 seconds)
+            # Check if this is a balance message posted from inline query
+            # Match any balance-related text in all supported languages
+            balance_keywords = ["Your Balance", "Ваш Баланс", "Su Saldo", "Ihr Kontostand", 
+                               "self-destruct", "самоудалится", "autodestruirá", "selbst zerstören"]
+            
+            is_balance_message = text and any(keyword in text for keyword in balance_keywords)
+            
+            if is_balance_message:
+                message_id = message.get("message_id", 0)
+                logger.info(f"🔍 Balance message check: text preview='{text[:100] if text else 'None'}...', chat_id={chat_id}, message_id={message_id}")
+                
+                if bot_commands and chat_id and message_id:
+                    logger.info(f"💰✅ Detected Balance message - scheduling auto-delete: chat_id={chat_id}, message_id={message_id}")
+                    # ✅ CRITICAL: Schedule auto-delete after 5 seconds using asyncio.create_task
+                    import asyncio
+                    try:
+                        loop = asyncio.get_event_loop()
+                        task = loop.create_task(bot_commands._auto_delete_message(str(chat_id), int(message_id), 5))
+                        logger.info(f"⏰✅ Task created for auto-delete: task={task}, will delete message {message_id} in 5 seconds")
+                    except Exception as e:
+                        logger.error(f"❌ FAILED to create auto-delete task: {e}", exc_info=True)
+                    # Return success but don't process further
+                    return {"status": "success", "type": "balance_message", "auto_delete_scheduled": True}
+                else:
+                    logger.warning(f"⚠️ Balance message detected but missing data: bot_commands={bot_commands is not None}, chat_id={chat_id}, message_id={message_id}")
+            
             # ✅ CRITICAL: Skip messages sent via inline query (via_bot field)
             # When user selects an inline query result, Telegram posts it as a message with via_bot
+            # EXCEPT Balance messages (handled above)
             if message.get("via_bot") is not None:
                 logger.info(f"📱 Ignoring inline query result message from chat {chat_id} (via_bot detected)")
                 return {"status": "success", "type": "inline_query_result", "ignored": True}
             
             # ✅ CRITICAL: Skip messages that match inline query result patterns
             # These are automatically posted when user selects from inline query menu
+            # EXCEPT Balance messages (handled above)
             if text and any(pattern in text for pattern in ["What Is My Balance", "Select an action:", "Check Balance", "Join To Me", "Welcome Back", "Show Last Actions"]):
                 logger.info(f"📱 Ignoring inline query result message: '{text[:50]}...' from chat {chat_id}")
                 return {"status": "success", "type": "inline_query_result", "ignored": True}
