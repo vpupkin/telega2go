@@ -1,9 +1,9 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query
 from fastapi import Request as FastAPIRequest
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
@@ -55,8 +55,11 @@ FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://putana.date').rstrip('/')
 # Create the main app without a prefix
 app = FastAPI()
 
+# Create a router with the /api prefix
+api_router = APIRouter(prefix="/api")
+
 # ✅ CRITICAL: Better 422 error handling for validation errors
-@app.exception_handler(RequestValidationError)
+# Must be registered AFTER router but BEFORE include_router
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle Pydantic validation errors with detailed messages"""
     errors = exc.errors()
@@ -86,8 +89,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         content={"detail": f"{detail_msg}. Please check all required fields are filled correctly."}
     )
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+# Register the exception handler
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 
 # Define Models
