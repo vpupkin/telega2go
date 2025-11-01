@@ -10,10 +10,10 @@ import time
 import sys
 from datetime import datetime
 
-# Configuration
-BACKEND_URL = "http://localhost:5572"
-OTP_GATEWAY_URL = "http://localhost:5571"
-FRONTEND_URL = "http://localhost:5573"
+# Configuration - ✅ FIXED: Using correct ports (5555x) as per docker-compose.yml
+BACKEND_URL = "http://localhost:55552"
+OTP_GATEWAY_URL = "http://localhost:55551"
+FRONTEND_URL = "http://localhost:55553"
 
 class BasicFunctionalityTester:
     def __init__(self):
@@ -74,7 +74,7 @@ class BasicFunctionalityTester:
         
         try:
             headers = {
-                "Origin": "http://localhost:5573",
+                "Origin": "http://localhost:55553",  # ✅ FIXED: Correct port
                 "Access-Control-Request-Method": "POST",
                 "Access-Control-Request-Headers": "Content-Type"
             }
@@ -86,7 +86,7 @@ class BasicFunctionalityTester:
             
             # Check CORS headers
             cors_origin = response.headers.get("access-control-allow-origin")
-            if cors_origin != "http://localhost:5573":
+            if cors_origin != "http://localhost:55553":  # ✅ FIXED: Correct port
                 self.log(f"Invalid CORS origin: {cors_origin}", "ERROR")
                 return False
             
