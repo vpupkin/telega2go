@@ -376,7 +376,7 @@ async def google_oauth_callback(code: str, state: str, request: FastAPIRequest):
     # Verify state token (CSRF protection)
     if not await verify_oauth_state(state):
         logger.warning(f"❌ Invalid or expired OAuth state: {state[:8]}...")
-        redirect_url = f"{FRONTEND_URL}/?error=invalid_oauth_state"
+        redirect_url = f"{FRONTEND_URL}/auth/google?error=invalid_oauth_state"
         return RedirectResponse(url=redirect_url, status_code=302)
     
     try:
@@ -394,7 +394,7 @@ async def google_oauth_callback(code: str, state: str, request: FastAPIRequest):
             token_response = await client.post(token_url, data=token_data, timeout=30.0)
             if token_response.status_code != 200:
                 logger.error(f"❌ Google token exchange failed: {token_response.status_code} - {token_response.text}")
-                redirect_url = f"{FRONTEND_URL}/?error=google_token_exchange_failed"
+                redirect_url = f"{FRONTEND_URL}/auth/google?error=google_token_exchange_failed"
                 return RedirectResponse(url=redirect_url, status_code=302)
             
             token_json = token_response.json()
@@ -403,7 +403,7 @@ async def google_oauth_callback(code: str, state: str, request: FastAPIRequest):
             
             if not access_token:
                 logger.error("❌ No access token in Google response")
-                redirect_url = f"{FRONTEND_URL}/?error=no_access_token"
+                redirect_url = f"{FRONTEND_URL}/auth/google?error=no_access_token"
                 return RedirectResponse(url=redirect_url, status_code=302)
         
         # Get user info from Google
@@ -414,7 +414,7 @@ async def google_oauth_callback(code: str, state: str, request: FastAPIRequest):
             userinfo_response = await client.get(userinfo_url, headers=headers, timeout=30.0)
             if userinfo_response.status_code != 200:
                 logger.error(f"❌ Google userinfo failed: {userinfo_response.status_code}")
-                redirect_url = f"{FRONTEND_URL}/?error=google_userinfo_failed"
+                redirect_url = f"{FRONTEND_URL}/auth/google?error=google_userinfo_failed"
                 return RedirectResponse(url=redirect_url, status_code=302)
             
             google_user = userinfo_response.json()
@@ -425,7 +425,7 @@ async def google_oauth_callback(code: str, state: str, request: FastAPIRequest):
         
         if not google_id or not google_email:
             logger.error(f"❌ Missing required Google user info: id={google_id}, email={google_email}")
-            redirect_url = f"{FRONTEND_URL}/?error=missing_google_user_info"
+            redirect_url = f"{FRONTEND_URL}/auth/google?error=missing_google_user_info"
             return RedirectResponse(url=redirect_url, status_code=302)
         
         logger.info(f"✅ Google OAuth user info retrieved: email={google_email}, google_id={google_id}")
@@ -499,14 +499,14 @@ async def google_oauth_callback(code: str, state: str, request: FastAPIRequest):
         }
         access_token_jwt = create_access_token(token_data_jwt)
         
-        # Redirect to frontend with token
-        redirect_url = f"{FRONTEND_URL}/?token={access_token_jwt}"
-        logger.info(f"✅ Google OAuth successful, redirecting to: {FRONTEND_URL}")
+        # Redirect to frontend Google OAuth handler with token
+        redirect_url = f"{FRONTEND_URL}/auth/google?token={access_token_jwt}"
+        logger.info(f"✅ Google OAuth successful, redirecting to: {redirect_url}")
         return RedirectResponse(url=redirect_url, status_code=302)
         
     except Exception as e:
         logger.error(f"❌ Google OAuth callback error: {e}", exc_info=True)
-        redirect_url = f"{FRONTEND_URL}/?error=oauth_callback_error"
+        redirect_url = f"{FRONTEND_URL}/auth/google?error=oauth_callback_error"
         return RedirectResponse(url=redirect_url, status_code=302)
 
 # OTP Gateway Integration
