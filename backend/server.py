@@ -89,8 +89,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         content={"detail": f"{detail_msg}. Please check all required fields are filled correctly."}
     )
 
-# Register the exception handler
-app.add_exception_handler(RequestValidationError, validation_exception_handler)
+# Exception handler will be registered after router but before include_router
 
 
 # Define Models
@@ -1813,6 +1812,9 @@ async def get_user_balance(telegram_user_id: int = Query(...)):
         raise HTTPException(status_code=500, detail=f"Failed to get user balance: {str(e)}")
 
 # Include the router in the main app
+# ✅ CRITICAL: Register exception handler BEFORE including router
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
 app.include_router(api_router)
 
 app.add_middleware(
