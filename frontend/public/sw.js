@@ -1,5 +1,5 @@
 // Service Worker for Telega2Go PWA
-const CACHE_NAME = 'telega2go-v2.15.6-balance-column';
+const CACHE_NAME = 'telega2go-v2.16.2-google-oauth-phase2';
 const urlsToCache = [
   '/',
   '/static/js/bundle.js',
