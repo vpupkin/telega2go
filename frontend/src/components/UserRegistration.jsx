@@ -456,15 +456,25 @@ const UserRegistration = () => {
         
         // ✅ PENALTY FIX: Send ONLY the selected identifier (backend will resolve the other)
         // ✅ CRITICAL: Only include non-empty values to avoid validation issues
-        if (useUsername && formData.telegram_username && formData.telegram_username.trim()) {
-          payload.telegram_username = formData.telegram_username.trim();
-          // ✅ NEVER send both - backend resolves chat_id from username
-        } else if (!useUsername && formData.telegram_chat_id && formData.telegram_chat_id.trim()) {
-          payload.telegram_chat_id = formData.telegram_chat_id.trim();
-          // ✅ NEVER send both - backend resolves username from chat_id
+        // ✅ CRITICAL FIX: Handle both toggle states explicitly
+        if (useUsername) {
+          // User selected username mode
+          const usernameValue = formData.telegram_username?.trim() || '';
+          if (!usernameValue) {
+            throw new Error('Telegram Username is required when using username mode');
+          }
+          payload.telegram_username = usernameValue;
+          // ✅ NEVER send chat_id when using username
+          // Backend will resolve chat_id from username
         } else {
-          // Neither field has value - should be caught by validation, but add safety check
-          throw new Error('Please provide either Telegram Username or Chat ID');
+          // User selected chat_id mode
+          const chatIdValue = formData.telegram_chat_id?.trim() || '';
+          if (!chatIdValue) {
+            throw new Error('Telegram Chat ID is required when using Chat ID mode');
+          }
+          payload.telegram_chat_id = chatIdValue;
+          // ✅ NEVER send username when using chat_id
+          // Backend will resolve username from chat_id
         }
         
         const response = await fetch(`${API_BASE}/register`, {
