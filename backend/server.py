@@ -1,7 +1,9 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query
 from fastapi import Request as FastAPIRequest
+from fastapi.exceptions import RequestValidationError
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
