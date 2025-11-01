@@ -1812,10 +1812,10 @@ async def get_user_balance(telegram_user_id: int = Query(...)):
         raise HTTPException(status_code=500, detail=f"Failed to get user balance: {str(e)}")
 
 # Include the router in the main app
-# ✅ CRITICAL: Register exception handler BEFORE including router
-app.add_exception_handler(RequestValidationError, validation_exception_handler)
-
 app.include_router(api_router)
+
+# ✅ CRITICAL: Register exception handler AFTER including router (override default)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 app.add_middleware(
     CORSMiddleware,

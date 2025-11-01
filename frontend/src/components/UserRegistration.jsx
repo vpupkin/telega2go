@@ -477,12 +477,29 @@ const UserRegistration = () => {
           // Backend will resolve username from chat_id
         }
         
+        // ✅ DEBUG: Log payload before sending (for geshatele debugging)
+        console.log('📤 Sending registration payload:', {
+          name: payload.name,
+          email: payload.email,
+          phone: payload.phone,
+          has_telegram_chat_id: !!payload.telegram_chat_id,
+          has_telegram_username: !!payload.telegram_username,
+          useUsername: useUsername
+        });
+        
         const response = await fetch(`${API_BASE}/register`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
+        });
+
+        // ✅ DEBUG: Log response details
+        console.log('📥 Registration response:', {
+          status: response.status,
+          ok: response.ok,
+          url: response.url
         });
 
         if (!response.ok) {
@@ -494,11 +511,12 @@ const UserRegistration = () => {
           }
           const errorMessage = errorData.detail || 'Registration failed';
           
-          // ✅ DEBUG: Log the payload that failed
+          // ✅ DEBUG: Log the payload that failed (for geshatele debugging)
           console.error('❌ Registration failed:', {
             status: response.status,
             error: errorMessage,
-            payload: payload
+            payload: payload,
+            errorData: errorData
           });
           
           // ✅ Better error messages for common cases
