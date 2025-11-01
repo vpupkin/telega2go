@@ -570,14 +570,14 @@ async def google_oauth_callback(code: str, state: str, request: FastAPIRequest):
         return RedirectResponse(url=redirect_url, status_code=302)
 
 # OTP Gateway Integration
-async def send_otp_via_telegram(chat_id: str, otp: str):
-    """Send OTP via Telegram using the OTP Gateway"""
+async def send_otp_via_telegram(chat_id_or_username: str, otp: str):
+    """Send OTP via Telegram using the OTP Gateway (accepts chat_id or username)"""
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{OTP_GATEWAY_URL}/send-otp",
                 json={
-                    "chat_id": chat_id,
+                    "chat_id": chat_id_or_username,  # Can be chat_id or username
                     "otp": otp,
                     "expire_seconds": 60  # 1 minute (max allowed)
                 },
@@ -853,11 +853,13 @@ async def resolve_telegram_ids(chat_id: Optional[str] = None, username: Optional
                     if data.get("ok") and str(data["result"]["id"]) != str(chat_id):
                         logger.warning(f"⚠️ Username @{username_clean} resolves to different chat_id")
     
-    except HTTPException:
+    except HTTPException as he:
+        # Re-raise HTTPException but don't add "chat_id" prefix
+        # The calling code will handle username-only registration gracefully
         raise
     except Exception as e:
         logger.error(f"❌ Error resolving Telegram IDs: {e}")
-        # If resolution fails, proceed with what we have
+        # If resolution fails and no chat_id, raise (but calling code handles gracefully)
         if not resolved_chat_id:
             raise HTTPException(
                 status_code=422,
@@ -906,41 +908,29 @@ async def register_user(registration: UserRegistration):
     chat_id = chat_id_clean if has_chat_id else None
     username = username_clean if has_username else None
     
+    # ✅ PENALTY FIX: Allow username-only registration (graceful failure on resolution)
     if not chat_id and username:
-        # Try to resolve username to chat_id (ENHANCEMENT - optional)
+        # Try to resolve username to chat_id (OPTIONAL - graceful failure)
         try:
             resolved = await resolve_telegram_ids(chat_id=None, username=username)
             chat_id = resolved.get("chat_id") or None
             # If resolution succeeds, update username too
             if resolved.get("username"):
                 username = resolved.get("username")
-        except HTTPException as e:
-            # Resolution failed - provide helpful error message
-            logger.warning(f"⚠️ Could not resolve username {username} to chat_id: {e.detail}")
-            # ✅ CRITICAL: Make error message clear and actionable
-            if "not found" in e.detail.lower() or "404" in e.detail.lower():
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Username {username} not found in Telegram. Please:\n1. Switch to 'Chat ID' mode (button above)\n2. Get your Chat ID from @userinfobot on Telegram\n3. Enter the Chat ID and submit again"
-                )
-            else:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Could not resolve username {username} to Chat ID. Please switch to 'Chat ID' mode (button above) and enter your Telegram Chat ID from @userinfobot."
-                )
-        except Exception as e:
-            # Other errors - log and provide helpful message
-            logger.warning(f"⚠️ Username resolution error for {username}: {e}")
-            raise HTTPException(
-                status_code=422,
-                detail=f"Could not resolve username {username} to Chat ID. Please switch to 'Chat ID' mode and enter your Telegram Chat ID directly (get it from @userinfobot)."
-            )
+            logger.info(f"✅ Successfully resolved username {username} → chat_id: {chat_id}")
+        except (HTTPException, Exception) as e:
+            # Resolution failed - but ALLOW username-only registration
+            logger.warning(f"⚠️ Could not resolve username {username} to chat_id: {str(e)}")
+            logger.info(f"ℹ️ Proceeding with username-only registration: {username}")
+            # Don't raise error - allow registration with username-only
+            # chat_id will be None, but username is stored for OTP delivery attempt
+            chat_id = None
     
-    # ✅ CRITICAL: chat_id is REQUIRED for OTP delivery (restore pre-googol requirement)
-    if not chat_id:
+    # ✅ CRITICAL: Either chat_id OR username is required
+    if not chat_id and not username:
         raise HTTPException(
             status_code=422, 
-            detail="telegram_chat_id is required for OTP delivery. Please switch to 'Chat ID' mode and enter your Telegram Chat ID (get it from @userinfobot)."
+            detail="Either telegram_chat_id OR telegram_username is required."
         )
     
     # ✅ NEW: Check if Telegram user already exists (if resolution gave us both IDs)
@@ -998,11 +988,25 @@ async def register_user(registration: UserRegistration):
     # Store session
     await db.registration_sessions.insert_one(session_data)
     
-    # ✅ RESTORED: Pre-googol simple OTP sending
-    otp_sent = await send_otp_via_telegram(chat_id, otp)
+    # ✅ PENALTY FIX: Send OTP to chat_id if available, otherwise try username
+    otp_target = chat_id or username
+    if not otp_target:
+        raise HTTPException(status_code=422, detail="Cannot send OTP: no chat_id or username provided")
+    
+    logger.info(f"📤 Sending OTP to: {otp_target} (type: {'chat_id' if chat_id else 'username'})")
+    otp_sent = await send_otp_via_telegram(otp_target, otp)
     
     if not otp_sent:
-        raise HTTPException(status_code=500, detail="Failed to send OTP via Telegram")
+        # For username-only, failure is acceptable (user may need to start bot first)
+        if not chat_id and username:
+            logger.warning(f"⚠️ Could not send OTP to username {username}. User may need to start the bot first.")
+            # Still allow registration to proceed - user can resend OTP or provide Chat ID later
+            return {
+                "message": f"Registration initiated. Please start the bot (@taxoin_bot) and try 'Resend OTP', or switch to 'Chat ID' mode.",
+                "requires_bot_start": True
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send OTP via Telegram")
     
     # Update session with OTP sent status
     await db.registration_sessions.update_one(
