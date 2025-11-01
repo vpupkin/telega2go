@@ -536,14 +536,63 @@ async def register_telegram_user(registration: TelegramUserRegistration):
             traceback.print_exc(file=sys.stderr)
             raise HTTPException(status_code=500, detail=f"Password validation error: {str(pwd_err)}")
         
-        # ✅ CRITICAL FIX: Use simple find_one and handle datetime fields manually
-        # Aggregation pipeline was causing the error - skip it entirely
-        # Registration requests are stored with ISO strings (see create_registration_request)
+        # ✅ CRITICAL FIX: Use raw pymongo client to avoid motor's datetime auto-conversion
+        # Motor converts ISO strings to datetime objects DURING find_one(), causing ERROR 19
+        # We MUST use raw pymongo to get the document as-is, then convert manually
         try:
-            logging.info(f"Step 1.5: Querying database for urr_id: {registration.urr_id}")
-            # Use simple find_one - documents already have ISO strings, not datetime objects
-            registration_request = await db.registration_requests.find_one({"urr_id": registration.urr_id})
+            logging.info(f"Step 1.5: Querying database for urr_id: {registration.urr_id} (using raw pymongo)")
+            
+            # ✅ Use raw pymongo client to bypass motor's auto-conversion
+            from pymongo import MongoClient
+            import os
+            mongo_url = os.environ.get('MONGO_URL', 'mongodb://mongodb:27017')
+            mongo_client = MongoClient(mongo_url)
+            mongo_db = mongo_client.get_database(os.environ.get('DB_NAME', 'telega2go'))
+            
+            # Get document directly from pymongo (no motor conversion)
+            raw_doc = mongo_db.registration_requests.find_one(
+                {"urr_id": registration.urr_id},
+                {"_id": 0}
+            )
+            
+            mongo_client.close()
+            
+            if raw_doc:
+                # Convert to dict and handle datetime fields
+                registration_request = dict(raw_doc)
+                
+                # ✅ IMMEDIATELY convert any datetime fields to ISO strings
+                # pymongo may return datetime objects, so convert them
+                if 'created_at' in registration_request:
+                    created_at_val = registration_request['created_at']
+                    if hasattr(created_at_val, 'isoformat'):
+                        registration_request['created_at'] = created_at_val.isoformat()
+                    elif not isinstance(created_at_val, str):
+                        registration_request['created_at'] = datetime.now(timezone.utc).isoformat()
+                
+                if 'expires_at' in registration_request:
+                    expires_at_val = registration_request['expires_at']
+                    if hasattr(expires_at_val, 'isoformat'):
+                        registration_request['expires_at'] = expires_at_val.isoformat()
+                    elif not isinstance(expires_at_val, str):
+                        registration_request['expires_at'] = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+                
+                logging.info(f"Step 1.5a: Retrieved via raw pymongo, converted datetime fields to ISO strings")
+            else:
+                registration_request = None
+            
             logging.info(f"Step 1.6: Database query completed, got request: {bool(registration_request)}")
+        except ValueError as ve:
+            # This should not happen anymore since we use raw pymongo, but keep as safety
+            if "hour must be in 0..23" in str(ve):
+                import sys
+                import traceback
+                logging.error(f"CRITICAL: Unexpected datetime conversion error: {ve}")
+                print(f"CRITICAL: Unexpected datetime conversion error: {ve}", file=sys.stderr)
+                print(traceback.format_exc(), file=sys.stderr)
+                raise HTTPException(status_code=500, detail=f"Database datetime conversion error: {str(ve)}")
+            else:
+                raise
         except Exception as db_err:
             import sys
             import traceback
@@ -553,52 +602,48 @@ async def register_telegram_user(registration: TelegramUserRegistration):
             raise HTTPException(status_code=500, detail=f"Database error: {str(db_err)}")
         
         if not registration_request:
+            # ✅ Better error message for production debugging
+            logging.warning(f"Registration request not found for urr_id: {registration.urr_id}")
             raise HTTPException(
                 status_code=400,
-                detail="Registration request not found or expired. Please start registration again."
+                detail=f"Registration request not found or expired (URR_ID: {registration.urr_id[:8]}...). Please start registration again via Telegram bot (@taxoin_bot)."
             )
         
-        # ✅ CRITICAL FIX: Document should now have datetime fields as ISO strings from aggregation
-        # Just convert to plain dict
+        # ✅ CRITICAL FIX: Document datetime fields are now ISO strings (converted above)
+        # Just ensure it's a plain dict
         logging.info(f"Step 1.7: Starting document processing (datetimes should already be strings)")
         
-        # ✅ Document should already have datetime fields as ISO strings from aggregation pipeline
-        # Just convert to plain dict (should be safe now)
-        try:
-            registration_request_dict = dict(registration_request)
-            logging.info(f"Step 1.7a: Converted to dict, keys: {list(registration_request_dict.keys())[:10]}")
-        except Exception as conv_err:
-            # If dict() fails, build manually
-            import sys
-            import traceback
-            logging.error(f"Error converting to dict: {conv_err}")
-            print(f"Error converting to dict: {conv_err}", file=sys.stderr)
-            
-            registration_request_dict = {}
-            for key in ['urr_id', 'telegram_user_id', 'telegram_username', 'first_name', 'last_name',
-                        'language_code', 'is_premium', 'email', 'phone', 
-                        'latitude', 'longitude', 'location', 'telegram_data', 'status',
-                        'created_at', 'expires_at']:
-                try:
-                    val = registration_request.get(key, None) if hasattr(registration_request, 'get') else getattr(registration_request, key, None)
-                    if val is not None:
-                        registration_request_dict[key] = val
-                except:
-                    if key == 'created_at':
-                        registration_request_dict[key] = datetime.now(timezone.utc).isoformat()
-                    elif key == 'expires_at':
-                        registration_request_dict[key] = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
-            
-            logging.info(f"Step 1.7b: Manual conversion, {len(registration_request_dict)} fields")
+        # ✅ Registration request should already be a dict with ISO string datetimes
+        # Just ensure it's a dict (should already be from find_one or recovery)
+        if not isinstance(registration_request, dict):
+            try:
+                registration_request_dict = dict(registration_request)
+                logging.info(f"Step 1.7a: Converted to dict, keys: {list(registration_request_dict.keys())[:10]}")
+                registration_request = registration_request_dict
+            except Exception as conv_err:
+                import sys
+                import traceback
+                logging.error(f"Error converting to dict: {conv_err}")
+                print(f"Error converting to dict: {conv_err}", file=sys.stderr)
+                traceback.print_exc(file=sys.stderr)
+                raise HTTPException(status_code=500, detail=f"Failed to process registration request: {str(conv_err)}")
         
-        # Ensure datetime fields are strings (should already be from aggregation)
-        if 'created_at' not in registration_request_dict or not isinstance(registration_request_dict.get('created_at'), str):
-            registration_request_dict['created_at'] = datetime.now(timezone.utc).isoformat()
-        if 'expires_at' not in registration_request_dict or not isinstance(registration_request_dict.get('expires_at'), str):
-            registration_request_dict['expires_at'] = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+        # ✅ FINAL CHECK: Ensure datetime fields are ISO strings (double-check after conversion)
+        if 'created_at' in registration_request:
+            if not isinstance(registration_request['created_at'], str):
+                if hasattr(registration_request['created_at'], 'isoformat'):
+                    registration_request['created_at'] = registration_request['created_at'].isoformat()
+                else:
+                    registration_request['created_at'] = datetime.now(timezone.utc).isoformat()
         
-        registration_request = registration_request_dict
-        logging.info(f"Step 1.7c: Document processing complete, {len(registration_request)} fields")
+        if 'expires_at' in registration_request:
+            if not isinstance(registration_request['expires_at'], str):
+                if hasattr(registration_request['expires_at'], 'isoformat'):
+                    registration_request['expires_at'] = registration_request['expires_at'].isoformat()
+                else:
+                    registration_request['expires_at'] = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+        
+        logging.info(f"Step 1.7c: Document processing complete, {len(registration_request)} fields, created_at type: {type(registration_request.get('created_at'))}, expires_at type: {type(registration_request.get('expires_at'))}")
         
         logging.info("Step 2: Registration request found and converted to dict")
         

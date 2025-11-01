@@ -53,10 +53,20 @@ const UserRegistration = () => {
 
   // ✅ PENALTY4: Load Telegram data by URR_ID or telegram_user_id
   useEffect(() => {
+    console.log('🔍 Registration form loaded:', {
+      urrIdParam,
+      telegramUserIdParam,
+      formData_urr_id: formData.urr_id
+    });
+    
     if (urrIdParam) {
+      console.log('📥 Loading Telegram data by URR_ID:', urrIdParam);
       loadTelegramDataByUrrId(urrIdParam);
     } else if (telegramUserIdParam) {
+      console.log('📥 Loading Telegram data by telegram_user_id:', telegramUserIdParam);
       loadTelegramData(telegramUserIdParam);
+    } else {
+      console.warn('⚠️ No URR_ID or telegram_user_id in URL parameters');
     }
   }, [urrIdParam, telegramUserIdParam]);
 
@@ -76,9 +86,17 @@ const UserRegistration = () => {
       setTelegramData(data);
       
       // ✅ PENALTY4: Pre-fill ALL fields from Telegram data
+      const loadedUrrId = data.urr_id || urrId;
+      console.log('✅ Telegram data loaded:', {
+        urr_id: loadedUrrId,
+        username: data.telegram_username || data.default_username,
+        has_email: !!data.email,
+        has_phone: !!data.phone
+      });
+      
       setFormData(prev => ({
         ...prev,
-        urr_id: data.urr_id || urrId,
+        urr_id: loadedUrrId, // ✅ CRITICAL: Ensure URR_ID is set from loaded data
         telegram_user_id: data.telegram_user_id?.toString() || '',
         username: data.telegram_username || data.default_username || data.suggested_name || data.telegram_user_id?.toString() || '', // ✅ Use Telegram username first
         email: data.email || '',
@@ -216,6 +234,19 @@ const UserRegistration = () => {
 
     // ✅ PENALTY4: Only validate password and username if URR_ID present (Telegram registration)
     if (urrIdParam) {
+      // ✅ CRITICAL VALIDATION: Ensure URR_ID is present
+      if (!urrIdParam || !urrIdParam.trim()) {
+        setError('Registration request ID (URR_ID) is missing. Please start registration again via Telegram bot.');
+        return;
+      }
+      
+      // ✅ CRITICAL VALIDATION: Ensure formData.urr_id is set
+      const urrIdToSend = urrIdParam || formData.urr_id;
+      if (!urrIdToSend || !urrIdToSend.trim()) {
+        setError('Registration request ID is missing. Please refresh the page and try again.');
+        return;
+      }
+      
       if (!formData.password || formData.password.trim().length < 6) {
         setError('Password is required (minimum 6 characters)');
         return;
@@ -224,6 +255,13 @@ const UserRegistration = () => {
         setError('Username on Site is required');
         return;
       }
+      
+      // ✅ Log request payload for debugging
+      console.log('📤 Sending registration request:', {
+        urr_id: urrIdToSend,
+        password_length: formData.password?.length || 0,
+        username: formData.username || 'N/A'
+      });
     } else {
       // Regular registration validation
       if (!validateForm()) return;
@@ -235,21 +273,79 @@ const UserRegistration = () => {
     try {
       // ✅ PENALTY4: Telegram registration - send URR_ID, password, and username (if changed)
       if (urrIdParam) {
+        // ✅ CRITICAL: Priority order: URL param > loaded data > formData
+        const urrIdToSend = urrIdParam || formData.urr_id || '';
+        
+        console.log('🔍 URR_ID resolution:', {
+          urrIdParam,
+          formData_urr_id: formData.urr_id,
+          urrIdToSend,
+          isValid: !!urrIdToSend && urrIdToSend.trim().length > 0
+        });
+        
+        // ✅ CRITICAL: Ensure urr_id is never empty or undefined
+        if (!urrIdToSend || !urrIdToSend.trim()) {
+          const errorMsg = 'Registration request ID is missing. Please start registration again via Telegram bot (@taxoin_bot).';
+          console.error('❌', errorMsg, { urrIdParam, formData_urr_id: formData.urr_id });
+          throw new Error(errorMsg);
+        }
+        
+        const requestPayload = {
+          urr_id: urrIdToSend.trim(),
+          password: formData.password?.trim() || '',
+        };
+        
+        // Only include username if it's not empty
+        if (formData.username && formData.username.trim()) {
+          requestPayload.username = formData.username.trim();
+        }
+        
+        console.log('📤 Final payload being sent:', { 
+          urr_id: requestPayload.urr_id, 
+          password_length: requestPayload.password.length,
+          has_username: !!requestPayload.username,
+          username: requestPayload.username || 'N/A'
+        });
+        
         const response = await fetch(`${API_BASE}/register-telegram`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            urr_id: formData.urr_id,
-            password: formData.password,
-            username: formData.username // ✅ Send username for uniqueness validation
-          }),
+          body: JSON.stringify(requestPayload),
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.detail || 'Registration failed');
+          // ✅ Try to parse error response
+          let errorData;
+          try {
+            errorData = await response.json();
+          } catch (parseErr) {
+            errorData = { detail: `HTTP ${response.status}: ${response.statusText}` };
+          }
+          
+          console.error('❌ Registration error:', {
+            status: response.status,
+            statusText: response.statusText,
+            error: errorData,
+            payload_sent: { ...requestPayload, password: '***' }
+          });
+          
+          // ✅ Better error messages for common issues
+          let errorMessage = errorData.detail || `Registration failed (${response.status})`;
+          
+          if (errorMessage.includes('not found') || errorMessage.includes('expired')) {
+            errorMessage = 'Registration request expired or not found. Please start registration again via Telegram bot (@taxoin_bot).';
+          } else if (errorMessage.includes('Password')) {
+            errorMessage = errorMessage; // Keep original password error
+          } else if (errorMessage.includes('already taken') || errorMessage.includes('Username')) {
+            errorMessage = errorMessage; // Keep original username error
+          } else if (response.status === 400) {
+            // Generic 400 - add more context
+            errorMessage = `${errorMessage} (Please check your registration data and try again)`;
+          }
+          
+          throw new Error(errorMessage);
         }
 
         const data = await response.json();

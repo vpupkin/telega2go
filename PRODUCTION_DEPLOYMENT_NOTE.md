@@ -1,7 +1,7 @@
 # 🚀 Production Deployment Note
 
-**Date:** 2025-10-31  
-**Status:** ⚠️ **PENDING DEPLOYMENT**
+**Date:** 2025-11-01 (Updated)  
+**Status:** ⚠️ **CRITICAL: PENDING DEPLOYMENT**
 
 ---
 
@@ -36,14 +36,28 @@ The frontend already handles 404 errors gracefully:
 
 ## 🎯 **Solution**
 
-### **Deploy Latest Backend to Production**
+### **CRITICAL: Deploy Latest Backend to Production**
 
-The DELETE endpoint was added in the admin user management feature (v2.11.0+). Production backend needs to be updated to include:
+**Two Critical Issues Require Deployment:**
+
+1. **ERROR 19 Fix (500 Internal Server Error)**: 
+   - Fixed by replacing motor `find_one()` with raw `pymongo.MongoClient`
+   - Prevents "hour must be in 0..23" datetime conversion errors
+   - **Version:** v2.13.2+ (includes ERROR 19 fix)
+
+2. **DELETE /api/users/{id} Endpoint (404)**:
+   - Added in admin user management feature (v2.11.0+)
+   - Production backend needs to be updated to include:
 
 1. ✅ `GET /api/users` - List all users
 2. ✅ `GET /api/users/{user_id}` - Get single user
 3. ✅ `PUT /api/users/{user_id}` - Update user
-4. ❌ `DELETE /api/users/{user_id}` - **Missing on production** (needs deployment
+4. ❌ `DELETE /api/users/{user_id}` - **Missing on production** (needs deployment)
+
+**Critical Fix:**
+- ✅ `POST /api/register-telegram` - **ERROR 19 fixed** (raw pymongo client)
+   - **Status on Production:** ❌ **NOT DEPLOYED** - Still returns 500 Internal Server Error
+   - **Local Status:** ✅ Fixed and tested (all 4 penalty tests passing)
 
 ---
 
