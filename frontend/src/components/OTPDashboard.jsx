@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
@@ -9,13 +10,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Alert, AlertDescription } from './ui/alert';
 import { Progress } from './ui/progress';
 import { Separator } from './ui/separator';
-import { Send, Shield, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw, Edit, Trash2, Users, Save, X } from 'lucide-react';
+import { Send, Shield, Clock, CheckCircle, XCircle, AlertTriangle, RefreshCw, Edit, Trash2, Users, Save, X, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import axios from 'axios';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 
 const OTPDashboard = () => {
+  const navigate = useNavigate();
   const [otpData, setOtpData] = useState({
     chatId: '',
     otp: '',
@@ -38,6 +40,16 @@ const OTPDashboard = () => {
   const [editingUser, setEditingUser] = useState(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState({ open: false, user: null });
+
+  // ✅ Logout function
+  const handleLogout = () => {
+    // Clear authentication data
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('user');
+    toast.success('Successfully logged out');
+    // Redirect to login page
+    navigate('/login', { replace: true });
+  };
 
   // API endpoints
   const OTP_GATEWAY_URL = process.env.REACT_APP_OTP_GATEWAY_URL || 'https://putana.date/otp';
@@ -271,10 +283,16 @@ const OTPDashboard = () => {
             <h1 className="text-3xl font-bold text-gray-900">OTP Social Gateway</h1>
             <p className="text-gray-600">Send secure OTPs via Telegram with auto-delete</p>
           </div>
-          <Button onClick={() => { checkSystemHealth(); fetchOtpHistory(); }} variant="outline" size="sm">
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh Status
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => { checkSystemHealth(); fetchOtpHistory(); }} variant="outline" size="sm">
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh Status
+            </Button>
+            <Button onClick={handleLogout} variant="outline" size="sm" className="flex items-center gap-2">
+              <LogOut className="h-4 w-4" />
+              Logout
+            </Button>
+          </div>
         </div>
 
         {/* System Status */}
