@@ -854,35 +854,60 @@ async def register_user(registration: UserRegistration):
             detail="Please provide EITHER telegram_chat_id OR telegram_username, not both. Use the toggle to select one."
         )
     
-    # ✅ PENALTY FIX: Resolve missing ID via Telegram API
-    resolved = await resolve_telegram_ids(
-        chat_id=str(chat_id_val).strip() if has_chat_id else None,
-        username=str(username_val).strip() if has_username else None
-    )
+    # ✅ PENALTY FIX: Try to resolve missing ID via Telegram API (optional - graceful failure)
+    chat_id = str(chat_id_val).strip() if has_chat_id else None
+    username = str(username_val).strip() if has_username else None
     
-    # ✅ Both IDs now available (one from user, one resolved)
-    chat_id = resolved["chat_id"]
-    username = resolved["username"]
+    try:
+        resolved = await resolve_telegram_ids(
+            chat_id=chat_id,
+            username=username
+        )
+        # Use resolved IDs if available
+        chat_id = resolved.get("chat_id") or chat_id
+        username = resolved.get("username") or username
+    except HTTPException as e:
+        # If resolution fails, log but continue with provided ID
+        logger.warning(f"⚠️ Telegram ID resolution failed: {e.detail}, using provided ID")
+        # Only fail if we don't have chat_id (required for OTP)
+        if not chat_id:
+            raise HTTPException(status_code=422, detail=f"Could not resolve chat_id: {e.detail}")
+    except Exception as e:
+        # Other errors - log but continue with provided ID
+        logger.warning(f"⚠️ Telegram ID resolution error: {e}, using provided ID")
+        if not chat_id:
+            raise HTTPException(status_code=422, detail="Could not resolve chat_id. Please check your Telegram ID.")
     
+    # ✅ Final check: chat_id is REQUIRED for OTP delivery
     if not chat_id:
-        raise HTTPException(status_code=422, detail="Could not resolve chat_id. Please check your Telegram ID.")
+        raise HTTPException(status_code=422, detail="telegram_chat_id is required for OTP delivery. Please provide a valid Chat ID.")
     
     # ✅ CRITICAL: Check if Telegram user already exists (BEFORE other checks)
-    existing_telegram_user = await db.users.find_one({
-        "$or": [
+    # Build query - only check fields that have values
+    telegram_query = {"$or": []}
+    if chat_id:
+        telegram_query["$or"].extend([
             {"telegram_chat_id": chat_id},
-            {"telegram_chat_id": str(chat_id)},
+            {"telegram_chat_id": str(chat_id)}
+        ])
+    if username:
+        username_clean = username.lstrip('@')
+        telegram_query["$or"].extend([
             {"telegram_username": username},
-            {"telegram_username": username.lstrip('@') if username else None}
-        ],
-        "is_verified": True
-    })
+            {"telegram_username": username_clean}
+        ])
     
-    if existing_telegram_user:
-        raise HTTPException(
-            status_code=400,
-            detail="This Telegram account is already registered. Please log in instead."
-        )
+    if telegram_query["$or"]:
+        existing_telegram_user = await db.users.find_one({
+            **telegram_query,
+            "is_verified": True
+        })
+        
+        if existing_telegram_user:
+            raise HTTPException(
+                status_code=400,
+                detail="This Telegram account is already registered. Please log in instead."
+            )
     
     # ✅ CRITICAL: Check name uniqueness (KISS: Case-insensitive check)
     existing_user_by_name = await db.users.find_one({
