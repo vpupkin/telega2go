@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
     bot_commands = FunnyBotCommands(settings.telegram_bot_token)
     
     # Initialize Telegram User Service (KISS: Simple init if DB available)
-    if mongo_db:
+    if mongo_db is not None:  # ✅ Motor 3.3.2 requires explicit None check
         telegram_user_service = TelegramUserService(mongo_db)
         logger.info("TelegramUserService initialized with MongoDB")
     else:

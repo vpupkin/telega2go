@@ -838,24 +838,53 @@ class FunnyBotCommands:
             # ✅ NEW: Extract Telegram user ID
             telegram_user_id = int(full_user_data.get("id", user_id)) if full_user_data else int(user_id)
             
+            logger.info(f"🔍 Inline query from Telegram user_id={telegram_user_id}, full_user_data.id={full_user_data.get('id') if full_user_data else 'N/A'}, username={full_user_data.get('username') if full_user_data else 'N/A'}")
+            
             # ✅ NEW: Check registration status (KISS: Simple check if service available)
             is_registered = False
             registered_user = None
             if telegram_user_service:
                 try:
+                    # Try to find user with multiple query strategies
                     status = await telegram_user_service.check_registration_status(telegram_user_id)
                     is_registered = status.get("is_registered", False) and status.get("is_verified", False)
                     registered_user = status.get("user")
                     
+                    logger.info(f"📊 Registration status check for user {telegram_user_id}: is_registered={is_registered}, is_verified={status.get('is_verified')}, has_user={registered_user is not None}")
+                    
+                    # If not found, try alternative lookups
+                    if not registered_user and full_user_data:
+                        username = full_user_data.get("username")
+                        if username:
+                            # Try finding by Telegram username if user_id lookup failed
+                            logger.info(f"🔄 User not found by ID ({telegram_user_id}) - trying username lookup: {username}")
+                            username_user = await telegram_user_service.get_user_by_telegram_username(username)
+                            if username_user:
+                                registered_user = username_user
+                                is_registered = True
+                                logger.info(f"✅ Found user by Telegram username: {username}")
+                    
+                    if registered_user:
+                        logger.info(f"✅ Registered user found: id={registered_user.get('id')}, email={registered_user.get('email')}, name={registered_user.get('name')}, telegram_user_id={registered_user.get('telegram_user_id')}, telegram_chat_id={registered_user.get('telegram_chat_id')}")
+                    else:
+                        logger.warning(f"❌ User {telegram_user_id} NOT found in database - will show joinToMe menu")
+                    
                     # Save Telegram profile for unregistered users
                     if not is_registered and full_user_data:
+                        logger.info(f"💾 User {telegram_user_id} is NOT registered - saving Telegram profile")
                         await telegram_user_service.save_telegram_profile(full_user_data)
+                    elif is_registered:
+                        logger.info(f"🎉 User {telegram_user_id} IS registered - will show welcomeBack menu")
                 except Exception as e:
-                    logger.error(f"Error checking registration status: {e}")
+                    logger.error(f"❌ Error checking registration status: {e}", exc_info=True)
+                    # On error, treat as unregistered to be safe
+                    is_registered = False
+                    registered_user = None
             
             # ✅ NEW: Generate menu based on registration status (KISS: Simple if/else)
             if is_registered and registered_user:
                 # REGISTERED USER - Show Welcome Back + Balance + LastActions
+                logger.info(f"🎯 Generating REGISTERED USER menu (welcomeBack) for user {telegram_user_id}")
                 menu_action_keys = [
                     ("1", "welcomeBack"),
                     ("2", "whatIsMyBalance"),
@@ -863,6 +892,7 @@ class FunnyBotCommands:
                 ]
             else:
                 # UNREGISTERED USER - Show Join To Me + Explain (NO Balance/LastActions)
+                logger.info(f"🎯 Generating UNREGISTERED USER menu (joinToMe) for user {telegram_user_id}")
                 menu_action_keys = [
                     ("1", "joinToMe"),
                     ("2", "explainWhatIsThis")
@@ -892,7 +922,48 @@ class FunnyBotCommands:
                     title = title.replace("{name}", user_name)
                     initial_message = initial_message.replace("{name}", user_name)
                 
-                # ✅ PENALTY4: Generate URR_ID and store Telegram data, then create registration URL
+                # ✅ NEW: For welcomeBack, generate magic link immediately (like joinToMe generates URR_ID)
+                magic_link_url = None
+                if action_key == "welcomeBack" and registered_user and telegram_user_service:
+                    try:
+                        import os
+                        import httpx
+                        backend_url = os.environ.get('BACKEND_URL', 'http://backend:8000')
+                        
+                        user_email = registered_user.get("email")
+                        user_id_from_db = registered_user.get("id")
+                        
+                        logger.info(f"Generating magic link for welcomeBack - user_id: {user_id_from_db}, email: {user_email}")
+                        
+                        if not user_email or not user_id_from_db:
+                            logger.error(f"Missing user data for magic link - email: {user_email}, user_id: {user_id_from_db}")
+                        else:
+                            async with httpx.AsyncClient(timeout=10.0) as client:
+                                # Generate magic link using backend API
+                                response = await client.post(
+                                    f"{backend_url}/api/generate-magic-link",
+                                    json={
+                                        "email": user_email,
+                                        "user_id": user_id_from_db
+                                    }
+                                )
+                                
+                                if response.status_code == 200:
+                                    magic_link_data = response.json()
+                                    magic_link_url = magic_link_data.get("magic_link_url", "")
+                                    if magic_link_url:
+                                        logger.info(f"✅ Generated magic link for welcomeBack: {magic_link_url[:50]}...")
+                                    else:
+                                        logger.error(f"Magic link URL is empty in response: {magic_link_data}")
+                                else:
+                                    error_text = response.text[:200] if hasattr(response, 'text') else 'N/A'
+                                    logger.error(f"❌ Failed to generate magic link: {response.status_code} - {error_text}")
+                                    # Don't fall back - this is critical for registered users
+                    except Exception as e:
+                        logger.error(f"❌ Error generating magic link in inline query: {e}", exc_info=True)
+                        # Don't fall back silently - log the error for debugging
+                
+                # ✅ Generate URL button based on action type
                 if action_key == "joinToMe":
                     registration_url = None
                     
@@ -931,6 +1002,25 @@ class FunnyBotCommands:
                         "text": button_text,
                         "url": registration_url  # ✅ URL button
                     }]]
+                elif action_key == "welcomeBack":
+                    if magic_link_url:
+                        # ✅ NEW: welcomeBack with magic link - use URL button (like joinToMe)
+                        keyboard = [[{
+                            "text": button_text,
+                            "url": magic_link_url  # ✅ Direct magic link URL button
+                        }]]
+                        # Also add magic link in message content as fallback
+                        initial_message += f"\n\n🔗 <a href='{magic_link_url}'>Continue to Account →</a>"
+                        logger.info(f"✅ welcomeBack menu created with magic link URL button")
+                    else:
+                        # ⚠️ CRITICAL: Magic link generation failed - log error but still show button
+                        logger.error(f"❌ CRITICAL: welcomeBack menu created WITHOUT magic link - user_id: {registered_user.get('id') if registered_user else 'N/A'}")
+                        # Use callback button as fallback (will try to generate magic link again in callback handler)
+                        keyboard = [[{
+                            "text": button_text,
+                            "callback_data": callback_data_map.get(action_key, f"action_{action_key}")
+                        }]]
+                        initial_message += f"\n\n⚠️ <i>Click the button above to access your account</i>"
                 else:
                     # For other actions, use callback_data button
                     keyboard = [[{

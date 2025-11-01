@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,8 +10,10 @@ import { CheckCircle, User, Mail, Phone, Shield, ArrowRight, ArrowLeft, AlertCir
 
 const UserRegistration = () => {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const urrIdParam = searchParams.get('urr_id'); // ✅ PENALTY4: URR_ID
   const telegramUserIdParam = searchParams.get('telegram_user_id'); // Backward compat
+  const tokenParam = searchParams.get('token'); // ✅ WelcomeBack: JWT token from magic link
   
   const [step, setStep] = useState(1); // 1: Registration Form, 2: OTP Verification, 3: Success
   const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://putana.date:55552';
@@ -51,8 +53,24 @@ const UserRegistration = () => {
   const [nameMessage, setNameMessage] = useState('');
   const [loadingTelegramData, setLoadingTelegramData] = useState(false);
 
+  // ✅ WelcomeBack: Check for JWT token first (registered user clicking magic link)
+  useEffect(() => {
+    if (tokenParam) {
+      console.log('🔐 JWT token detected - registered user authentication');
+      // Store token in localStorage
+      localStorage.setItem('access_token', tokenParam);
+      // Redirect to admin dashboard (user is already registered)
+      console.log('✅ Redirecting registered user to dashboard');
+      navigate('/admin', { replace: true });
+      return; // Don't load registration form
+    }
+  }, [tokenParam, navigate]);
+
   // ✅ PENALTY4: Load Telegram data by URR_ID or telegram_user_id
   useEffect(() => {
+    // Skip if token is present (user is being redirected)
+    if (tokenParam) return;
+    
     console.log('🔍 Registration form loaded:', {
       urrIdParam,
       telegramUserIdParam,
@@ -68,7 +86,7 @@ const UserRegistration = () => {
     } else {
       console.warn('⚠️ No URR_ID or telegram_user_id in URL parameters');
     }
-  }, [urrIdParam, telegramUserIdParam]);
+  }, [urrIdParam, telegramUserIdParam, tokenParam]);
 
   // ✅ PENALTY4: Load data by URR_ID (primary method)
   const loadTelegramDataByUrrId = async (urrId) => {
@@ -83,6 +101,37 @@ const UserRegistration = () => {
       }
       
       const data = await response.json();
+      
+      // ✅ CRITICAL: Check if user is already registered - MUST BE FIRST!
+      console.log('🔍 Checking registration data:', { already_registered: data.already_registered, has_urr_id: !!data.urr_id });
+      
+      if (data.already_registered === true) {
+        console.log('✅ User already registered - redirecting to dashboard');
+        // Generate magic link for already-registered user
+        try {
+          const magicLinkResponse = await fetch(`${API_BASE}/generate-magic-link`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: data.email || `user${data.user_id}@telegram.local`,
+              user_id: data.user_id
+            })
+          });
+          
+          if (magicLinkResponse.ok) {
+            const magicLinkData = await magicLinkResponse.json();
+            // Redirect to magic link verification
+            window.location.href = magicLinkData.magic_link_url;
+            return; // Exit early - redirecting
+          }
+        } catch (magicLinkError) {
+          console.error('Error generating magic link:', magicLinkError);
+          // Fallback: just redirect to dashboard
+          navigate('/admin', { replace: true });
+          return;
+        }
+        return; // Exit early if redirecting
+      }
       setTelegramData(data);
       
       // ✅ PENALTY4: Pre-fill ALL fields from Telegram data

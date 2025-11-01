@@ -15,14 +15,46 @@ class TelegramUserService:
     
     async def get_user_by_telegram_id(self, telegram_user_id: int) -> Optional[Dict]:
         """Get registered user by Telegram User ID (or chat_id as fallback)"""
-        # KISS: Simple query with $or for backwards compatibility
+        # KISS: Query with $or for backwards compatibility - check both integer and string formats
+        # Some users might have telegram_chat_id as number, others as string
         user = await self.db.users.find_one({
             "$or": [
-                {"telegram_user_id": telegram_user_id},
-                {"telegram_chat_id": str(telegram_user_id)}
+                {"telegram_user_id": telegram_user_id},  # Integer match
+                {"telegram_chat_id": str(telegram_user_id)},  # String match
+                {"telegram_chat_id": telegram_user_id}  # Integer match (fallback for old data)
             ],
             "is_verified": True
         })
+        if user:
+            logger.info(f"✅ Found registered user: id={user.get('id')}, telegram_user_id={user.get('telegram_user_id')}, telegram_chat_id={user.get('telegram_chat_id')}")
+        else:
+            logger.warning(f"❌ No registered user found for telegram_user_id={telegram_user_id}")
+            # Try one more fallback: check if telegram_chat_id matches as string in any format
+            # This handles cases where telegram_chat_id might be stored differently
+            fallback_user = await self.db.users.find_one({
+                "$expr": {
+                    "$or": [
+                        {"$eq": ["$telegram_chat_id", str(telegram_user_id)]},
+                        {"$eq": ["$telegram_chat_id", telegram_user_id]}
+                    ]
+                },
+                "is_verified": True
+            })
+            if fallback_user:
+                logger.info(f"✅ Found user via fallback query: id={fallback_user.get('id')}, telegram_chat_id={fallback_user.get('telegram_chat_id')}")
+                user = fallback_user
+        return user
+    
+    async def get_user_by_telegram_username(self, telegram_username: str) -> Optional[Dict]:
+        """Get registered user by Telegram username (fallback method)"""
+        if not telegram_username:
+            return None
+        user = await self.db.users.find_one({
+            "telegram_username": telegram_username,
+            "is_verified": True
+        })
+        if user:
+            logger.info(f"✅ Found user by Telegram username: {telegram_username}")
         return user
     
     async def check_registration_status(self, telegram_user_id: int) -> Dict:

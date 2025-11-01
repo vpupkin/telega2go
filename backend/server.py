@@ -1,4 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
+from fastapi import Request as FastAPIRequest
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -218,7 +219,10 @@ async def generate_magic_link(request: dict):
     if not token:
         raise HTTPException(status_code=500, detail="Failed to generate magic link")
     
-    magic_link_url = f"https://putana.date/api/verify-magic-link?token={token}"
+    # Use environment variable for production domain, fallback to hardcoded
+    # Avoid /api in magic link URL (Apache handles routing)
+    frontend_url = os.environ.get('FRONTEND_URL', 'https://putana.date').rstrip('/')
+    magic_link_url = f"{frontend_url}/api/verify-magic-link?token={token}"
     
     return {
         "magic_link_url": magic_link_url,
@@ -226,15 +230,23 @@ async def generate_magic_link(request: dict):
     }
 
 @api_router.get("/verify-magic-link")
-async def verify_magic_link(token: str):
+async def verify_magic_link(token: str, request: FastAPIRequest):
     """Verify magic link and authenticate registered user - KISS: Simple redirect"""
     from fastapi.responses import RedirectResponse
+    
+    # Get the base URL - use environment variable or hardcoded production URL
+    # Never include /api in the redirect URL
+    base_url = os.environ.get('FRONTEND_URL', 'https://putana.date').rstrip('/')
+    # Ensure base_url doesn't contain /api
+    if '/api' in base_url:
+        base_url = base_url.split('/api')[0]
     
     # Verify the magic link token
     token_data = verify_magic_link_token(token)
     if not token_data:
-        # Redirect to error page
-        return RedirectResponse(url=f"/?error=invalid_token", status_code=302)
+        # Redirect to error page with absolute URL
+        redirect_url = f"{base_url}/?error=invalid_token"
+        return RedirectResponse(url=redirect_url, status_code=302)
     
     email = token_data["email"]
     user_id = token_data["user_id"]
@@ -242,14 +254,16 @@ async def verify_magic_link(token: str):
     # Verify user exists and is verified
     user = await db.users.find_one({"id": user_id, "email": email, "is_verified": True})
     if not user:
-        return RedirectResponse(url=f"/?error=user_not_found", status_code=302)
+        redirect_url = f"{base_url}/?error=user_not_found"
+        return RedirectResponse(url=redirect_url, status_code=302)
     
     # Create JWT token for session
     token_data_jwt = {"sub": user["id"], "email": user["email"]}
     access_token = create_access_token(token_data_jwt)
     
-    # Redirect to dashboard with token
-    return RedirectResponse(url=f"/?token={access_token}", status_code=302)
+    # Redirect to dashboard with token - use absolute URL for Apache compatibility
+    redirect_url = f"{base_url}/?token={access_token}"
+    return RedirectResponse(url=redirect_url, status_code=302)
 
 # OTP Gateway Integration
 async def send_otp_via_telegram(chat_id: str, otp: str):
@@ -368,6 +382,30 @@ async def get_registration_form_data(urr_id: str = None, telegram_user_id: int =
         # Try URR_ID first (new method)
         if urr_id:
             registration_request = await db.registration_requests.find_one({"urr_id": urr_id})
+            
+            # ✅ CRITICAL: Check if user is already registered
+            if registration_request:
+                telegram_user_id_from_request = registration_request.get("telegram_user_id")
+                if telegram_user_id_from_request:
+                    # Check if user already exists in database
+                    existing_user = await db.users.find_one({
+                        "$or": [
+                            {"telegram_user_id": telegram_user_id_from_request},
+                            {"telegram_chat_id": str(telegram_user_id_from_request)},
+                            {"telegram_chat_id": telegram_user_id_from_request}
+                        ],
+                        "is_verified": True
+                    })
+                    
+                    if existing_user:
+                        # User is already registered! Return special flag to redirect
+                        logging.info(f"User {telegram_user_id_from_request} already registered - should redirect to dashboard")
+                        return {
+                            "already_registered": True,
+                            "user_id": existing_user.get("id"),
+                            "email": existing_user.get("email"),
+                            "redirect_url": "/admin"
+                        }
         
         # Fallback to telegram_user_id (backward compatibility)
         if not registration_request and telegram_user_id:

@@ -1,5 +1,5 @@
 // Service Worker for Telega2Go PWA
-const CACHE_NAME = 'telega2go-v1.1.0';
+const CACHE_NAME = 'telega2go-v2.15.5-welcomeback-fix';
 const urlsToCache = [
   '/',
   '/static/js/bundle.js',
