@@ -53,6 +53,27 @@
 | `/send-otp` | POST | ❌ None | 🟡 Medium | Medium | Rate limiting exists but could be improved |
 | `/webhook` | POST | ✅ Telegram | 🟢 Low | Low | Verified by Telegram's secret token |
 
+### **Bot API (via `/webhook` - Telegram Bot Commands)**
+
+| Endpoint/Command | Method | Authentication | Security-Critical | Risk Level | Issue |
+|------------------|--------|----------------|-------------------|------------|-------|
+| `/webhook` (Bot Commands) | POST | ✅ Telegram | 🟢 Low | Low | Verified by Telegram secret token |
+| `/start` | Bot Command | ✅ Telegram User | 🟢 Low | Low | User-initiated, verified by Telegram |
+| `/help` | Bot Command | ✅ Telegram User | 🟢 Low | Low | User-initiated, verified by Telegram |
+| `/joke` | Bot Command | ✅ Telegram User | 🟢 Low | Low | User-initiated, verified by Telegram |
+| `/dice` | Bot Command | ✅ Telegram User | 🟢 Low | Low | User-initiated, verified by Telegram |
+| `/fortune` | Bot Command | ✅ Telegram User | 🟢 Low | Low | User-initiated, verified by Telegram |
+| `/stats` | Bot Command | ✅ Telegram User | 🟢 Low | Low | User-initiated, verified by Telegram |
+| `/mood` | Bot Command | ✅ Telegram User | 🟢 Low | Low | User-initiated, verified by Telegram |
+| `/panic` | Bot Command | ✅ Telegram User | 🟢 Low | Low | User-initiated, verified by Telegram |
+| `@taxoin_bot` (Inline Query) | POST | ✅ Telegram | 🟢 Low | Low | Verified by Telegram, generates dynamic menu |
+| Inline Query: Join To Me | Callback | ✅ Telegram | 🟢 Low | Low | Creates URR_ID, redirects to registration |
+| Inline Query: Welcome Back | Callback | ✅ Telegram | 🟢 Low | Low | Generates magic link for registered users |
+| Inline Query: What Is My Balance | Result | ✅ Telegram | 🟡 Medium | Medium | **Pre-fetches balance data** (financial info) |
+| Inline Query: Show Last Actions | Result | ✅ Telegram | 🟡 Medium | Medium | **Pre-fetches user account data** |
+
+**Note:** All Bot API endpoints are secured by Telegram's webhook verification. The `/webhook` endpoint verifies that requests come from Telegram using the bot's secret token. Bot commands and inline queries are user-initiated through Telegram, which provides authentication via the Telegram user's identity.
+
 ---
 
 ## 🔴 **CRITICAL SECURITY VULNERABILITIES**
@@ -333,15 +354,19 @@ async def list_users(admin: dict = Depends(get_current_admin)):
 - Telegram registration (bypasses OTP)
 - OTP resend (no rate limiting)
 
-### **Medium Risk Endpoints:** 3
+### **Medium Risk Endpoints:** 5
 - Status endpoints
 - Registration request creation
 - Registration form data retrieval
+- Balance inline query (pre-fetches financial data)
+- Last Actions inline query (pre-fetches user data)
 
-### **Low Risk Endpoints:** 5
-- Health checks
-- Public registration/verification
-- Telegram webhook (verified)
+### **Low Risk Endpoints:** 14
+- Health checks (3 endpoints)
+- Public registration/verification (3 endpoints)
+- Telegram webhook (verified) ✅
+- Bot commands (8 commands) ✅
+- Info endpoints (2 endpoints)
 
 ---
 
@@ -372,7 +397,25 @@ async def list_users(admin: dict = Depends(get_current_admin)):
 
 ---
 
+---
+
+## 📋 **COMPLETE API ENDPOINT INVENTORY**
+
+### **Backend API (17 endpoints)**
+All endpoints documented above in "Backend API" section.
+
+### **OTP Gateway (5 endpoints)**
+All endpoints documented above in "OTP Gateway" section.
+
+### **Bot API (14 endpoints/commands)**
+All bot commands and inline query handlers documented above in "Bot API" section.
+
+**Total:** 36 API endpoints/commands analyzed
+
+---
+
 **Status**: 🔴 **SECURITY AUDIT COMPLETE - CRITICAL ISSUES IDENTIFIED**  
 **Priority**: **CRITICAL** - Immediate action required  
-**Next Steps**: Implement authentication for all critical endpoints
+**Next Steps**: Implement authentication for all critical endpoints  
+**Coverage**: All APIs consolidated in single document ✅
 
