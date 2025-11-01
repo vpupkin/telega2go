@@ -30,7 +30,8 @@ self.addEventListener('install', (event) => {
 // Fetch event - serve from cache when offline
 self.addEventListener('fetch', (event) => {
   // ✅ CRITICAL: Always bypass cache for API requests (network-only)
-  if (event.request.url.includes('/api/')) {
+  // Also skip for non-GET methods (POST/PUT/DELETE) - they cannot be cached
+  if (event.request.url.includes('/api/') || event.request.method !== 'GET') {
     event.respondWith(
       fetch(event.request)
         .catch((error) => {
@@ -46,7 +47,7 @@ self.addEventListener('fetch', (event) => {
           );
         })
     );
-    return; // Don't proceed with cache logic for API requests
+    return; // Don't proceed with cache logic for API requests or non-GET methods
   }
   
   // For non-API requests, use cache-first strategy
@@ -60,20 +61,26 @@ self.addEventListener('fetch', (event) => {
         
         // Fetch from network for non-API requests
         return fetch(event.request)
-          .then((response) => {
-            // Don't cache if response is not ok
-            if (!response || response.status !== 200 || response.type !== 'basic') {
-              return response;
-            }
-            
-            // Cache successful responses
-            const responseClone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseClone);
-            });
-            
+        .then((response) => {
+          // Don't cache if response is not ok
+          if (!response || response.status !== 200 || response.type !== 'basic') {
             return response;
-          })
+          }
+          
+          // ✅ CRITICAL: Only cache GET requests (POST/PUT/DELETE cannot be cached)
+          // Also skip caching for non-GET methods to avoid "Request method 'POST' is unsupported" error
+          if (event.request.method !== 'GET') {
+            return response;
+          }
+          
+          // Cache successful GET responses only
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseClone);
+          });
+          
+          return response;
+        })
           .catch((error) => {
             console.error('Service Worker: Fetch failed', error);
             // If both cache and network fail, show offline page for documents
