@@ -60,20 +60,30 @@ app = FastAPI()
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle Pydantic validation errors with detailed messages"""
     errors = exc.errors()
-    logger.error(f"❌ Validation error: {errors}")
+    logger.error(f"❌ Validation error on {request.url.path}: {errors}")
     
-    # Extract field-specific errors
+    # Extract field-specific errors (skip 'body' prefix in location)
     error_messages = []
     for error in errors:
-        field = ".".join(str(loc) for loc in error.get("loc", []))
+        # Location format: ['body', 'field_name'] - skip 'body'
+        loc = error.get("loc", [])
+        if loc and loc[0] == "body":
+            field = ".".join(str(l) for l in loc[1:])  # Skip 'body' prefix
+        else:
+            field = ".".join(str(l) for l in loc)
         msg = error.get("msg", "Validation error")
-        error_messages.append(f"{field}: {msg}")
+        error_type = error.get("type", "")
+        
+        # User-friendly messages
+        if error_type == "missing":
+            error_messages.append(f"'{field}' is required")
+        else:
+            error_messages.append(f"'{field}': {msg}")
     
+    detail_msg = ", ".join(error_messages) if error_messages else "Validation error"
     return JSONResponse(
         status_code=422,
-        content={
-            "detail": f"Validation error: {', '.join(error_messages)}. Please check all required fields are filled correctly."
-        }
+        content={"detail": f"{detail_msg}. Please check all required fields are filled correctly."}
     )
 
 # Create a router with the /api prefix
