@@ -279,21 +279,10 @@ const UserRegistration = () => {
       setError('Phone number is required');
       return false;
     }
-    // ✅ FIX: When username is selected, BOTH are required (chat_id for OTP)
-    if (useUsername) {
-      if (!formData.telegram_username.trim()) {
-        setError('Telegram Username is required');
-        return false;
-      }
-      if (!formData.telegram_chat_id.trim()) {
-        setError('Chat ID is required for OTP delivery when using username');
-        return false;
-      }
-    } else {
-      if (!formData.telegram_chat_id.trim()) {
-        setError('Telegram Chat ID is required');
-        return false;
-      }
+    // ✅ KISS: Only validate chat_id (username not supported, OTP requires chat_id)
+    if (!formData.telegram_chat_id.trim()) {
+      setError('Telegram Chat ID is required for OTP delivery');
+      return false;
     }
     return true;
   };
@@ -458,18 +447,8 @@ const UserRegistration = () => {
           phone: formData.phone,
         };
         
-        // ✅ If username is selected, BOTH are required (chat_id for OTP)
-        if (useUsername) {
-          if (!formData.telegram_chat_id.trim()) {
-            setError('Chat ID is required for OTP delivery when using username');
-            setIsLoading(false);
-            return;
-          }
-          payload.telegram_username = formData.telegram_username;
-          payload.telegram_chat_id = formData.telegram_chat_id; // Required for OTP
-        } else {
-          payload.telegram_chat_id = formData.telegram_chat_id;
-        }
+        // ✅ KISS: Only send chat_id (OTP requires it, username not supported)
+        payload.telegram_chat_id = formData.telegram_chat_id;
         
         const response = await fetch(`${API_BASE}/register`, {
           method: 'POST',
