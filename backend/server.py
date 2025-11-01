@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query
 from fastapi import Request as FastAPIRequest
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -60,6 +60,7 @@ class User(BaseModel):
     email: str  # ✅ Changed from EmailStr to str to allow Telegram's @telegram.local emails
     phone: str
     telegram_chat_id: str
+    balance: float = 0.0  # ✅ User balance (defaults to 0.0 for all new users)
     is_verified: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -93,6 +94,7 @@ class UserResponse(BaseModel):
     email: str
     phone: str
     telegram_chat_id: str
+    balance: float = 0.0  # ✅ User balance
     is_verified: bool
     created_at: str  # ✅ Changed to str to avoid datetime serialization issues
 
@@ -837,6 +839,7 @@ async def register_telegram_user(registration: TelegramUserRegistration):
             "email": email,  # May be invalid format (e.g., @telegram.local) - OK for Telegram users
             "phone": phone,
             "telegram_chat_id": str(telegram_user_id),
+            "balance": 0.0,  # ✅ Initialize balance to 0.0 for new users
             "is_verified": True,  # ✅ Already validated via Telegram
             "created_at": now_iso,  # ✅ ISO string immediately - no datetime objects
             "updated_at": now_iso   # ✅ ISO string immediately - no datetime objects
@@ -1008,6 +1011,7 @@ async def verify_otp(verification: OTPVerification):
     
     # Save user to database (KISS: Add Telegram fields if available)
     user_doc = user.model_dump()
+    user_doc['balance'] = 0.0  # ✅ Initialize balance to 0.0 for new users
     if telegram_profile:
         user_doc['telegram_user_id'] = telegram_user_id
         user_doc['telegram_username'] = telegram_profile.get('telegram_username')
@@ -1120,6 +1124,10 @@ async def list_users():
             elif not isinstance(user.get('created_at'), str):
                 # If it's not a string, convert to ISO string
                 user['created_at'] = datetime.now(timezone.utc).isoformat()
+            
+            # ✅ Initialize balance if missing
+            if user.get('balance') is None:
+                user['balance'] = 0.0
         
         return [UserResponse(**user) for user in users]
     except Exception as e:
@@ -1144,6 +1152,10 @@ async def get_user(user_id: str):
         elif not isinstance(user.get('created_at'), str):
             # If it's not a string, convert to ISO string
             user['created_at'] = datetime.now(timezone.utc).isoformat()
+        
+        # ✅ Initialize balance if missing
+        if user.get('balance') is None:
+            user['balance'] = 0.0
         
         return UserResponse(**user)
     except HTTPException:
@@ -1267,6 +1279,49 @@ async def delete_user(user_id: str):
     except Exception as e:
         logging.error(f"Error deleting user: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete user: {str(e)}")
+
+@api_router.get("/user-balance")
+async def get_user_balance(telegram_user_id: int = Query(...)):
+    """Get user balance by Telegram User ID"""
+    try:
+        # Find user by telegram_user_id
+        user = await db.users.find_one({
+            "$or": [
+                {"telegram_user_id": telegram_user_id},
+                {"telegram_chat_id": str(telegram_user_id)},
+                {"telegram_chat_id": telegram_user_id}
+            ],
+            "is_verified": True
+        }, {"_id": 0})
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # ✅ CRITICAL: If balance doesn't exist, initialize it to 0.0 and update the user
+        balance = user.get("balance")
+        if balance is None:
+            # Balance field missing - initialize it
+            await db.users.update_one(
+                {"id": user.get("id")},
+                {"$set": {"balance": 0.0}}
+            )
+            balance = 0.0
+            logging.info(f"✅ Initialized balance field for user {user.get('id')}")
+        
+        user_name = user.get("name", "User")
+        
+        return {
+            "telegram_user_id": telegram_user_id,
+            "user_id": user.get("id"),
+            "name": user_name,
+            "balance": float(balance),  # Ensure it's a float
+            "currency": "USD"  # Default currency
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error getting user balance: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get user balance: {str(e)}")
 
 # Include the router in the main app
 app.include_router(api_router)

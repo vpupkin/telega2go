@@ -1,5 +1,6 @@
 """FastAPI application for OTP Social Gateway"""
 import asyncio
+import json
 import logging
 import sys
 from datetime import datetime, timezone
@@ -246,6 +247,17 @@ async def telegram_webhook(request: Request):
     try:
         data = await request.json()
         
+        # ✅ DEBUG: Log ALL webhook updates to see what Telegram sends
+        update_type = "unknown"
+        if "inline_query" in data:
+            update_type = "inline_query"
+        elif "callback_query" in data:
+            update_type = "callback_query"
+        elif "message" in data:
+            update_type = "message"
+        
+        logger.info(f"📥 WEBHOOK RECEIVED: type={update_type}, keys={list(data.keys())}")
+        
         # Handle inline queries (when @taxoin_bot is typed)
         if "inline_query" in data:
             inline_query = data["inline_query"]
@@ -281,22 +293,49 @@ async def telegram_webhook(request: Request):
             callback_query_id = callback_query["id"]
             callback_data = callback_query.get("data", "")
             message = callback_query.get("message", {})
-            chat_id = str(message.get("chat", {}).get("id", ""))
+            # ✅ CRITICAL FIX: Get chat_id from message.chat.id, fallback to message.chat if structure differs
+            chat_id = str(message.get("chat", {}).get("id", "")) if message.get("chat") else ""
+            if not chat_id:
+                # Try alternative: get from message directly or from user
+                chat_id = str(message.get("chat_id", ""))
+            if not chat_id:
+                # Last resort: use user ID from callback query
+                user_from_query = callback_query.get("from", {})
+                chat_id = str(user_from_query.get("id", ""))
+            
             message_id = message.get("message_id", 0)
             user = callback_query.get("from", {})
             language_code = user.get("language_code")  # Get user's Telegram language
             
+            # ✅ CRITICAL: Log all callback queries for debugging
+            logger.info(f"🔔 CALLBACK RECEIVED: callback_data='{callback_data}', chat_id={chat_id}, message_id={message_id}, user_id={user.get('id', 'N/A')}")
+            logger.info(f"🔍 CALLBACK DEBUG: message={json.dumps(message, default=str)[:200]}...")
+            logger.info(f"🔍 CALLBACK DEBUG: callback_query.from={json.dumps(user, default=str)[:200]}...")
+            
+            # ✅ CRITICAL FIX: If chat_id is still empty, use user ID from callback query
+            if not chat_id or chat_id == "":
+                user_id_from_callback = user.get("id")
+                if user_id_from_callback:
+                    chat_id = str(user_id_from_callback)
+                    logger.info(f"✅ Fixed empty chat_id using user.id: {chat_id}")
+                else:
+                    logger.error(f"❌ CRITICAL: Cannot determine chat_id - user.id also missing!")
+            
             if bot_commands:
-                # ✅ Pass telegram_user_service for magic link generation
+                # ✅ CRITICAL: Get user ID from callback query for balance handler
+                user_id_from_callback = user.get("id") if user else None
+                
+                # ✅ Pass telegram_user_service for magic link generation AND user_id for balance handler
                 success = await bot_commands.handle_callback_query(
                     callback_query_id, chat_id, message_id, callback_data, language_code,
-                    telegram_user_service=telegram_user_service
+                    telegram_user_service=telegram_user_service,
+                    user_id_from_callback=user_id_from_callback
                 )
                 if success:
-                    logger.info(f"Handled callback query '{callback_data}' from chat {chat_id}")
+                    logger.info(f"✅ Handled callback query '{callback_data}' from chat {chat_id}")
                     return {"status": "success", "type": "callback_query"}
                 else:
-                    logger.error(f"Failed to handle callback query from chat {chat_id}")
+                    logger.error(f"❌ Failed to handle callback query '{callback_data}' from chat {chat_id}")
                     return {"status": "error", "message": "Failed to process callback query"}
             else:
                 logger.error("Bot commands not initialized")
@@ -305,11 +344,23 @@ async def telegram_webhook(request: Request):
         # Check if it's a message update
         if "message" in data:
             message = data["message"]
-            chat_id = str(message["chat"]["id"])
+            chat_id = str(message.get("chat", {}).get("id", ""))
             text = message.get("text", "")
             user = message.get("from", {})
             username = user.get("username")
             language_code = user.get("language_code")  # Get user's Telegram language
+            
+            # ✅ CRITICAL: Skip messages sent via inline query (via_bot field)
+            # When user selects an inline query result, Telegram posts it as a message with via_bot
+            if message.get("via_bot") is not None:
+                logger.info(f"📱 Ignoring inline query result message from chat {chat_id} (via_bot detected)")
+                return {"status": "success", "type": "inline_query_result", "ignored": True}
+            
+            # ✅ CRITICAL: Skip messages that match inline query result patterns
+            # These are automatically posted when user selects from inline query menu
+            if text and any(pattern in text for pattern in ["What Is My Balance", "Select an action:", "Check Balance", "Join To Me", "Welcome Back", "Show Last Actions"]):
+                logger.info(f"📱 Ignoring inline query result message: '{text[:50]}...' from chat {chat_id}")
+                return {"status": "success", "type": "inline_query_result", "ignored": True}
             
             # Handle commands
             if text.startswith("/"):

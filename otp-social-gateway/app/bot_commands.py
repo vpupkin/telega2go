@@ -963,8 +963,95 @@ class FunnyBotCommands:
                         logger.error(f"❌ Error generating magic link in inline query: {e}", exc_info=True)
                         # Don't fall back silently - log the error for debugging
                 
-                # ✅ Generate URL button based on action type
-                if action_key == "joinToMe":
+                # ✅ CRITICAL FIX: Generate data IMMEDIATELY for Balance and ShowLastActions
+                # (Like Join generates URR_ID immediately, we generate data immediately)
+                if action_key == "whatIsMyBalance" and registered_user and telegram_user_service:
+                    # ✅ Fetch balance data IMMEDIATELY during inline query (not in callback)
+                    try:
+                        import os
+                        import httpx
+                        backend_url = os.environ.get('BACKEND_URL', 'http://backend:8000')
+                        
+                        async with httpx.AsyncClient(timeout=10.0) as client:
+                            balance_response = await client.get(
+                                f"{backend_url}/api/user-balance",
+                                params={"telegram_user_id": telegram_user_id}
+                            )
+                            
+                            if balance_response.status_code == 200:
+                                balance_data = balance_response.json()
+                                balance = balance_data.get("balance", 0.0)
+                                user_name = balance_data.get("name", "User")
+                                currency = balance_data.get("currency", "USD")
+                                
+                                # Update initial_message with actual balance data
+                                balance_messages = {
+                                    "en": f"💰 <b>Your Balance</b>\n\n👤 User: <b>{user_name}</b>\n💵 Balance: <b>{balance:.2f} {currency}</b>\n\n⚠️ This message will self-destruct in 5 seconds.",
+                                    "ru": f"💰 <b>Ваш Баланс</b>\n\n👤 Пользователь: <b>{user_name}</b>\n💵 Баланс: <b>{balance:.2f} {currency}</b>\n\n⚠️ Это сообщение самоудалится через 5 секунд.",
+                                    "es": f"💰 <b>Su Saldo</b>\n\n👤 Usuario: <b>{user_name}</b>\n💵 Saldo: <b>{balance:.2f} {currency}</b>\n\n⚠️ Este mensaje se autodestruirá en 5 segundos.",
+                                    "de": f"💰 <b>Ihr Kontostand</b>\n\n👤 Benutzer: <b>{user_name}</b>\n💵 Kontostand: <b>{balance:.2f} {currency}</b>\n\n⚠️ Diese Nachricht wird sich in 5 Sekunden selbst zerstören."
+                                }
+                                
+                                initial_message = balance_messages.get(language_code or "en", balance_messages["en"])
+                                logger.info(f"✅ Pre-fetched balance for inline query: {balance:.2f} {currency}")
+                            else:
+                                initial_message = f"❌ Error retrieving balance. Please try again later."
+                                logger.error(f"Failed to fetch balance: {response.status_code}")
+                    except Exception as e:
+                        logger.error(f"Error fetching balance in inline query: {e}")
+                        initial_message = f"❌ Error retrieving balance. Please try again later."
+                    
+                    # No button needed - message contains all data
+                    keyboard = []
+                elif action_key == "showLastactions" and registered_user:
+                    # ✅ Fetch last actions data IMMEDIATELY during inline query
+                    try:
+                        import os
+                        import httpx
+                        backend_url = os.environ.get('BACKEND_URL', 'http://backend:8000')
+                        
+                        async with httpx.AsyncClient(timeout=10.0) as client:
+                            balance_response = await client.get(
+                                f"{backend_url}/api/user-balance",
+                                params={"telegram_user_id": telegram_user_id}
+                            )
+                            
+                            user_info = ""
+                            if balance_response.status_code == 200:
+                                # Try to get created_at from user list
+                                user_response = await client.get(f"{backend_url}/api/users")
+                                if user_response.status_code == 200:
+                                    users = user_response.json()
+                                    user = next((u for u in users if isinstance(u, dict) and u.get("telegram_user_id") == telegram_user_id), None)
+                                    if user and user.get("created_at"):
+                                        created_at = user.get("created_at")
+                                        if isinstance(created_at, str) and "T" in created_at:
+                                            try:
+                                                from datetime import datetime
+                                                dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                                                created_at = dt.strftime("%Y-%m-%d %H:%M:%S")
+                                            except:
+                                                pass
+                                        if created_at != "Unknown":
+                                            user_info = f"📅 <b>Account Created:</b> {created_at}\n"
+                            
+                            # Update initial_message with actual data
+                            actions_messages = {
+                                "en": f"📋 <b>Your Last Actions</b>\n\n{user_info}✅ Account is active and verified.\n\n💡 <i>Full activity history available in your dashboard.</i>",
+                                "ru": f"📋 <b>Ваши Последние Действия</b>\n\n{user_info}✅ Аккаунт активен и подтвержден.\n\n💡 <i>Полная история активности доступна в вашей панели управления.</i>",
+                                "es": f"📋 <b>Sus Últimas Acciones</b>\n\n{user_info}✅ La cuenta está activa y verificada.\n\n💡 <i>El historial completo de actividad está disponible en su panel.</i>",
+                                "de": f"📋 <b>Ihre Letzten Aktionen</b>\n\n{user_info}✅ Das Konto ist aktiv und verifiziert.\n\n💡 <i>Vollständiger Aktivitätsverlauf ist in Ihrem Dashboard verfügbar.</i>"
+                            }
+                            
+                            initial_message = actions_messages.get(language_code or "en", actions_messages["en"])
+                            logger.info(f"✅ Pre-fetched last actions for inline query")
+                    except Exception as e:
+                        logger.error(f"Error fetching last actions in inline query: {e}")
+                        initial_message = f"❌ Error retrieving last actions. Please try again later."
+                    
+                    # No button needed - message contains all data
+                    keyboard = []
+                elif action_key == "joinToMe":
                     registration_url = None
                     
                     # Create registration request with URR_ID via backend API
@@ -1022,12 +1109,13 @@ class FunnyBotCommands:
                         }]]
                         initial_message += f"\n\n⚠️ <i>Click the button above to access your account</i>"
                 else:
-                    # For other actions, use callback_data button
+                    # For other actions (explainWhatIsThis), use callback_data button
                     keyboard = [[{
                         "text": button_text,
                         "callback_data": callback_data_map.get(action_key, f"action_{action_key}")
                     }]]
                 
+                # Only add reply_markup if keyboard is not empty
                 result = {
                     "type": "article",
                     "id": action_id,
@@ -1036,11 +1124,14 @@ class FunnyBotCommands:
                     "input_message_content": {
                         "message_text": initial_message,
                         "parse_mode": "HTML"
-                    },
-                    "reply_markup": {
-                        "inline_keyboard": keyboard
                     }
                 }
+                
+                # Only add keyboard if it has buttons
+                if keyboard:
+                    result["reply_markup"] = {
+                        "inline_keyboard": keyboard
+                    }
                 results.append(result)
             
             # Answer the inline query
@@ -1074,13 +1165,14 @@ class FunnyBotCommands:
         message_id: int, 
         callback_data: str, 
         language_code: Optional[str] = None,
-        telegram_user_service = None
+        telegram_user_service = None,
+        user_id_from_callback: Optional[int] = None  # ✅ NEW: Direct user ID from callback query
     ) -> bool:
         """Handle callback queries when menu buttons are pressed - posts answer into chat"""
         try:
             # Get user language (default to 'en' if not provided or not supported)
             lang = self._get_language(language_code)
-            logger.info(f"Handling callback query '{callback_data}' for chat {chat_id} with language: {lang}")
+            logger.info(f"🔔 Handling callback query '{callback_data}' for chat_id={chat_id}, user_id_from_callback={user_id_from_callback} with language: {lang}")
             
             # Map callback_data to action_key (KISS: Add welcomeBack)
             action_key_map = {
@@ -1090,6 +1182,337 @@ class FunnyBotCommands:
                 "action_showLastactions": "showLastactions",
                 "action_welcomeBack": "welcomeBack"
             }
+            
+            logger.info(f"📋 callback_data='{callback_data}', mapped to action_key={action_key_map.get(callback_data, 'UNKNOWN')}")
+            logger.info(f"🔍 DEBUG: Full callback_data value: '{callback_data}', type: {type(callback_data)}")
+            logger.info(f"🔍 DEBUG: Checking if '{callback_data}' == 'action_whatIsMyBalance': {callback_data == 'action_whatIsMyBalance'}")
+            
+            # ✅ CRITICAL: Handle balance FIRST, before any other logic
+            if callback_data == "action_whatIsMyBalance":
+                logger.info(f"💰💰💰 BALANCE BUTTON CLICKED! callback_data='{callback_data}', chat_id={chat_id}, user_id_from_callback={user_id_from_callback}")
+                logger.info(f"💰 Processing balance request immediately...")
+                try:
+                    import asyncio
+                    # ✅ CRITICAL FIX: Use user_id_from_callback if provided, otherwise try chat_id
+                    if user_id_from_callback:
+                        telegram_user_id = user_id_from_callback
+                        logger.info(f"✅ Using user_id_from_callback: {telegram_user_id}")
+                    elif chat_id and chat_id != "":
+                        telegram_user_id = int(chat_id)
+                        logger.info(f"✅ Using chat_id converted to int: {telegram_user_id}")
+                    else:
+                        # Both are empty - cannot proceed
+                        logger.error(f"❌ CRITICAL: Both chat_id and user_id_from_callback are empty - cannot determine user")
+                        async with httpx.AsyncClient(timeout=10.0) as error_client:
+                            await error_client.post(
+                                f"{self.telegram_api_base}/answerCallbackQuery",
+                                json={
+                                    "callback_query_id": callback_query_id,
+                                    "text": "Error: Could not identify user",
+                                    "show_alert": True
+                                }
+                            )
+                        return True
+                    backend_url = os.environ.get('BACKEND_URL', 'http://backend:8000')
+                    
+                    # Get balance from backend
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        logger.info(f"📞 Calling backend API: {backend_url}/api/user-balance?telegram_user_id={telegram_user_id}")
+                        balance_response = await client.get(
+                            f"{backend_url}/api/user-balance",
+                            params={"telegram_user_id": telegram_user_id}
+                        )
+                        
+                        logger.info(f"📥 Backend response: HTTP {balance_response.status_code}")
+                        
+                        if balance_response.status_code == 200:
+                            balance_data = balance_response.json()
+                            balance = balance_data.get("balance", 0.0)
+                            user_name = balance_data.get("name", "User")
+                            currency = balance_data.get("currency", "USD")
+                            
+                            logger.info(f"💰 Balance retrieved for user {telegram_user_id}: {balance:.2f} {currency}")
+                            
+                            # Format balance message with translations
+                            balance_messages = {
+                                "en": f"💰 <b>Your Balance</b>\n\n👤 User: <b>{user_name}</b>\n💵 Balance: <b>{balance:.2f} {currency}</b>\n\n⚠️ This message will self-destruct in 5 seconds.",
+                                "ru": f"💰 <b>Ваш Баланс</b>\n\n👤 Пользователь: <b>{user_name}</b>\n💵 Баланс: <b>{balance:.2f} {currency}</b>\n\n⚠️ Это сообщение самоудалится через 5 секунд.",
+                                "es": f"💰 <b>Su Saldo</b>\n\n👤 Usuario: <b>{user_name}</b>\n💵 Saldo: <b>{balance:.2f} {currency}</b>\n\n⚠️ Este mensaje se autodestruirá en 5 segundos.",
+                                "de": f"💰 <b>Ihr Kontostand</b>\n\n👤 Benutzer: <b>{user_name}</b>\n💵 Kontostand: <b>{balance:.2f} {currency}</b>\n\n⚠️ Diese Nachricht wird sich in 5 Sekunden selbst zerstören."
+                            }
+                            
+                            response_text = balance_messages.get(lang, balance_messages["en"])
+                            logger.info(f"📝 Balance message text (i18n): {response_text[:50]}...")
+                            
+                            # Send self-destruct message
+                            async with httpx.AsyncClient(timeout=30.0) as telegram_client:
+                                # Answer callback FIRST to remove loading state
+                                await telegram_client.post(
+                                    f"{self.telegram_api_base}/answerCallbackQuery",
+                                    json={
+                                        "callback_query_id": callback_query_id,
+                                        "text": "",
+                                        "show_alert": False
+                                    }
+                                )
+                                
+                                # Send message second with SIMPLE balance format
+                                # ✅ CRITICAL: Use telegram_user_id as chat_id (for private chats, chat_id = user_id)
+                                send_chat_id = str(telegram_user_id) if chat_id == "" or not chat_id else chat_id
+                                
+                                logger.info(f"📤 Sending balance message: chat_id={send_chat_id}, message='{response_text}'")
+                                
+                                send_response = await telegram_client.post(
+                                    f"{self.telegram_api_base}/sendMessage",
+                                    json={
+                                        "chat_id": send_chat_id,
+                                        "text": response_text,  # ✅ i18n formatted message with user name, balance, currency
+                                        "parse_mode": "HTML"  # ✅ Required for HTML formatting (bold tags)
+                                    }
+                                )
+                                
+                                logger.info(f"📥 Balance message response: HTTP {send_response.status_code}, chat_id={send_chat_id}")
+                                
+                                if send_response.status_code != 200:
+                                    error_data = send_response.json() if send_response.headers.get("content-type", "").startswith("application/json") else {}
+                                    logger.error(f"❌ Telegram sendMessage error: {error_data}")
+                                
+                                if send_response.status_code == 200:
+                                    message_data = send_response.json()
+                                    balance_message_id = message_data.get("result", {}).get("message_id")
+                                    logger.info(f"✅✅✅ SUCCESS! Balance message sent to user {telegram_user_id}, message_id={balance_message_id}")
+                                    logger.info(f"✅✅✅ Message content sent: '{response_text}'")
+                                    logger.info(f"✅✅✅ User should now see: '{response_text}' in Telegram")
+                                    
+                                    # ✅ Schedule auto-delete after 5 seconds
+                                    if balance_message_id:
+                                        loop = asyncio.get_event_loop()
+                                        loop.create_task(self._auto_delete_message(send_chat_id, balance_message_id, 5))
+                                        logger.info(f"⏰ Scheduled auto-delete for message_id={balance_message_id} in 5 seconds")
+                                    
+                                    return True  # ✅ CRITICAL: Return True to prevent fallthrough
+                                else:
+                                    error_text = send_response.text[:200] if hasattr(send_response, 'text') else str(send_response.status_code)
+                                    logger.error(f"❌ Failed to send balance message: HTTP {send_response.status_code} - {error_text}")
+                                    return True  # Return True to prevent fallthrough to message handler
+                        else:
+                            # Balance fetch failed - send error message and return True
+                            logger.error(f"❌ Balance fetch failed: HTTP {balance_response.status_code} - {balance_response.text[:200] if hasattr(balance_response, 'text') else 'N/A'}")
+                            error_msg = {
+                                "en": "❌ Failed to retrieve balance. Please try again later.",
+                                "ru": "❌ Не удалось получить баланс. Попробуйте позже.",
+                                "es": "❌ Error al recuperar el saldo. Inténtelo más tarde.",
+                                "de": "❌ Saldo konnte nicht abgerufen werden. Bitte versuchen Sie es später erneut."
+                            }
+                            error_text = error_msg.get(lang, error_msg["en"])
+                            
+                            # Send error message and return True
+                            async with httpx.AsyncClient(timeout=30.0) as error_client:
+                                await error_client.post(
+                                    f"{self.telegram_api_base}/answerCallbackQuery",
+                                    json={
+                                        "callback_query_id": callback_query_id,
+                                        "text": "",
+                                        "show_alert": False
+                                    }
+                                )
+                                await error_client.post(
+                                    f"{self.telegram_api_base}/sendMessage",
+                                    json={
+                                        "chat_id": chat_id,
+                                        "text": error_text,
+                                        "parse_mode": "HTML"
+                                    }
+                                )
+                            return True  # ✅ CRITICAL: Always return True for balance action
+                except Exception as e:
+                    logger.error(f"❌ Exception in balance handler: {e}", exc_info=True)
+                    # Use error message on exception and return True
+                    error_msg = {
+                        "en": "❌ Error retrieving balance. Please try again later.",
+                        "ru": "❌ Ошибка при получении баланса. Попробуйте позже.",
+                        "es": "❌ Error al recuperar el saldo. Inténtelo más tarde.",
+                        "de": "❌ Fehler beim Abrufen des Kontostands. Bitte versuchen Sie es später erneut."
+                    }
+                    error_text = error_msg.get(lang, error_msg["en"])
+                    
+                    # Send error message and return True
+                    try:
+                        async with httpx.AsyncClient(timeout=30.0) as error_client:
+                            await error_client.post(
+                                f"{self.telegram_api_base}/answerCallbackQuery",
+                                json={
+                                    "callback_query_id": callback_query_id,
+                                    "text": "",
+                                    "show_alert": False
+                                }
+                            )
+                            await error_client.post(
+                                f"{self.telegram_api_base}/sendMessage",
+                                json={
+                                    "chat_id": chat_id,
+                                    "text": error_text,
+                                    "parse_mode": "HTML"
+                                }
+                            )
+                    except:
+                        pass
+                    return True  # ✅ CRITICAL: Always return True for balance action
+            
+            # ✅ NEW: Handle ShowLastActions (similar to Balance)
+            if callback_data == "action_showLastactions":
+                logger.info(f"📋📋📋 LAST ACTIONS BUTTON CLICKED! callback_data='{callback_data}', chat_id={chat_id}, user_id_from_callback={user_id_from_callback}")
+                logger.info(f"📋 Processing last actions request immediately...")
+                try:
+                    # ✅ Use user_id_from_callback if provided, otherwise try chat_id
+                    if user_id_from_callback:
+                        telegram_user_id = user_id_from_callback
+                        logger.info(f"✅ Using user_id_from_callback: {telegram_user_id}")
+                    elif chat_id and chat_id != "":
+                        telegram_user_id = int(chat_id)
+                        logger.info(f"✅ Using chat_id converted to int: {telegram_user_id}")
+                    else:
+                        # Both are empty - cannot proceed
+                        logger.error(f"❌ CRITICAL: Both chat_id and user_id_from_callback are empty - cannot determine user")
+                        async with httpx.AsyncClient(timeout=10.0) as error_client:
+                            await error_client.post(
+                                f"{self.telegram_api_base}/answerCallbackQuery",
+                                json={
+                                    "callback_query_id": callback_query_id,
+                                    "text": "Error: Could not identify user",
+                                    "show_alert": True
+                                }
+                            )
+                        return True
+                    
+                    backend_url = os.environ.get('BACKEND_URL', 'http://backend:8000')
+                    
+                    # Get user's last actions from backend (registration date, etc.)
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        # Get user data via balance endpoint (it returns user info too)
+                        logger.info(f"📞 Calling backend API: {backend_url}/api/user-balance?telegram_user_id={telegram_user_id}")
+                        balance_response = await client.get(
+                            f"{backend_url}/api/user-balance",
+                            params={"telegram_user_id": telegram_user_id}
+                        )
+                        
+                        # Also try to get user directly (fallback)
+                        user_response = await client.get(
+                            f"{backend_url}/api/users",
+                            params={"telegram_user_id": telegram_user_id}
+                        )
+                        
+                        user_info = ""
+                        # Try to get created_at from balance response or user response
+                        created_at = "Unknown"
+                        
+                        if balance_response.status_code == 200:
+                            balance_data = balance_response.json()
+                            # Balance endpoint might have user data
+                            if "created_at" in balance_data:
+                                created_at = balance_data.get("created_at")
+                        
+                        if user_response.status_code == 200:
+                            users = user_response.json()
+                            # If users is a list, get first one; if it's a dict, use it directly
+                            user = None
+                            if isinstance(users, list) and len(users) > 0:
+                                user = users[0]
+                            elif isinstance(users, dict):
+                                user = users
+                            
+                            if user and "created_at" in user:
+                                created_at = user.get("created_at", "Unknown")
+                        
+                        # Format created_at if it's a datetime string
+                        if isinstance(created_at, str) and "T" in created_at:
+                            try:
+                                from datetime import datetime
+                                dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                                created_at = dt.strftime("%Y-%m-%d %H:%M:%S")
+                            except:
+                                pass
+                        
+                        if created_at != "Unknown":
+                            user_info = f"📅 <b>Account Created:</b> {created_at}\n"
+                        
+                        # Format last actions message with translations
+                        actions_messages = {
+                            "en": f"📋 <b>Your Last Actions</b>\n\n{user_info}✅ Account is active and verified.\n\n💡 <i>Full activity history available in your dashboard.</i>",
+                            "ru": f"📋 <b>Ваши Последние Действия</b>\n\n{user_info}✅ Аккаунт активен и подтвержден.\n\n💡 <i>Полная история активности доступна в вашей панели управления.</i>",
+                            "es": f"📋 <b>Sus Últimas Acciones</b>\n\n{user_info}✅ La cuenta está activa y verificada.\n\n💡 <i>El historial completo de actividad está disponible en su panel.</i>",
+                            "de": f"📋 <b>Ihre Letzten Aktionen</b>\n\n{user_info}✅ Das Konto ist aktiv und verifiziert.\n\n💡 <i>Vollständiger Aktivitätsverlauf ist in Ihrem Dashboard verfügbar.</i>"
+                        }
+                        
+                        response_text = actions_messages.get(lang, actions_messages["en"])
+                        logger.info(f"📝 Last actions message text (i18n): {response_text[:50]}...")
+                        
+                        # Send message (NOT self-destructing, as it's informational)
+                        async with httpx.AsyncClient(timeout=30.0) as telegram_client:
+                            # Answer callback FIRST to remove loading state
+                            await telegram_client.post(
+                                f"{self.telegram_api_base}/answerCallbackQuery",
+                                json={
+                                    "callback_query_id": callback_query_id,
+                                    "text": "",
+                                    "show_alert": False
+                                }
+                            )
+                            
+                            # Send message
+                            send_chat_id = str(telegram_user_id) if chat_id == "" or not chat_id else chat_id
+                            
+                            logger.info(f"📤 Sending last actions message: chat_id={send_chat_id}")
+                            
+                            send_response = await telegram_client.post(
+                                f"{self.telegram_api_base}/sendMessage",
+                                json={
+                                    "chat_id": send_chat_id,
+                                    "text": response_text,
+                                    "parse_mode": "HTML"
+                                }
+                            )
+                            
+                            logger.info(f"📥 Last actions message response: HTTP {send_response.status_code}")
+                            
+                            if send_response.status_code == 200:
+                                logger.info(f"✅✅✅ SUCCESS! Last actions message sent to user {telegram_user_id}")
+                            else:
+                                error_data = send_response.json() if send_response.headers.get("content-type", "").startswith("application/json") else {}
+                                logger.error(f"❌ Telegram sendMessage error: {error_data}")
+                        
+                        return True  # ✅ CRITICAL: Always return True for last actions
+                except Exception as e:
+                    logger.error(f"❌ Exception in last actions handler: {e}", exc_info=True)
+                    error_msg = {
+                        "en": "❌ Error retrieving last actions. Please try again later.",
+                        "ru": "❌ Ошибка при получении последних действий. Попробуйте позже.",
+                        "es": "❌ Error al recuperar las últimas acciones. Inténtelo más tarde.",
+                        "de": "❌ Fehler beim Abrufen der letzten Aktionen. Bitte versuchen Sie es später erneut."
+                    }
+                    error_text = error_msg.get(lang, error_msg["en"])
+                    
+                    try:
+                        async with httpx.AsyncClient(timeout=30.0) as error_client:
+                            await error_client.post(
+                                f"{self.telegram_api_base}/answerCallbackQuery",
+                                json={
+                                    "callback_query_id": callback_query_id,
+                                    "text": "",
+                                    "show_alert": False
+                                }
+                            )
+                            await error_client.post(
+                                f"{self.telegram_api_base}/sendMessage",
+                                json={
+                                    "chat_id": chat_id,
+                                    "text": error_text,
+                                    "parse_mode": "HTML"
+                                }
+                            )
+                    except:
+                        pass
+                    return True  # ✅ CRITICAL: Always return True for last actions
             
             # ✅ PENALTY++ FIX: joinToMe uses URL button, should not trigger callback
             # If callback_data is for joinToMe, this means URL button didn't work
@@ -1159,8 +1582,20 @@ class FunnyBotCommands:
                 return True  # Already handled, return success
             
             if action_key:
-                # Get translated response text
-                response_text = self._get_response_text(action_key, language_code)
+                # ✅ REMOVED: Duplicate balance handler - balance is already handled at line 1098
+                # ✅ Skip whatIsMyBalance and showLastactions here - they're handled earlier
+                if action_key == "whatIsMyBalance":
+                    logger.warning(f"⚠️ Balance handler reached duplicate code - should have been caught at line 1098!")
+                    return True  # Already handled, return success
+                
+                if action_key == "showLastactions":
+                    logger.warning(f"⚠️ Last actions handler reached duplicate code - should have been caught earlier!")
+                    return True  # Already handled, return success
+                
+                # ✅ Continue processing other actions (balance already handled at line 1098)
+                # Get translated response text for action
+                if 'response_text' not in locals():
+                    response_text = self._get_response_text(action_key, language_code)
                 
                 # ✅ NEW: For welcomeBack, add magic link button (KISS: Generate from DB)
                 if action_key == "welcomeBack" and telegram_user_service:
@@ -1242,3 +1677,27 @@ class FunnyBotCommands:
             except:
                 pass
             return False
+    
+    async def _auto_delete_message(self, chat_id: str, message_id: int, delay_seconds: int):
+        """Auto-delete message after specified delay (in seconds)"""
+        try:
+            logger.info(f"⏳ Scheduling auto-delete for message {message_id} in {delay_seconds} seconds")
+            await asyncio.sleep(delay_seconds)
+            
+            # Delete the message
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.telegram_api_base}/deleteMessage",
+                    data={
+                        "chat_id": chat_id,
+                        "message_id": message_id
+                    }
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"✅ SUCCESS: Auto-deleted balance message {message_id} from chat {chat_id}")
+                else:
+                    response_text = response.text if hasattr(response, 'text') else 'N/A'
+                    logger.warning(f"⚠️ FAILED to auto-delete message {message_id}: HTTP {response.status_code} - {response_text}")
+        except Exception as e:
+            logger.error(f"❌ EXCEPTION in auto-delete for message {message_id}: {e}", exc_info=True)

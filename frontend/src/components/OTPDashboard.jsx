@@ -555,6 +555,7 @@ const OTPDashboard = () => {
                           <TableHead>Email</TableHead>
                           <TableHead>Phone</TableHead>
                           <TableHead>Telegram Chat ID</TableHead>
+                          <TableHead>Balance</TableHead>
                           <TableHead>Verified</TableHead>
                           <TableHead>Created</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
@@ -567,6 +568,9 @@ const OTPDashboard = () => {
                             <TableCell>{user.email}</TableCell>
                             <TableCell>{user.phone || 'N/A'}</TableCell>
                             <TableCell className="font-mono text-xs">{user.telegram_chat_id}</TableCell>
+                            <TableCell className="font-mono font-semibold">
+                              ${(user.balance ?? 0).toFixed(2)} USD
+                            </TableCell>
                             <TableCell>
                               {user.is_verified ? (
                                 <Badge className="bg-green-100 text-green-800">Verified</Badge>
