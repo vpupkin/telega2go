@@ -486,8 +486,21 @@ const UserRegistration = () => {
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
+          let errorData;
+          try {
+            errorData = await response.json();
+          } catch (e) {
+            errorData = { detail: `HTTP ${response.status}: ${response.statusText}` };
+          }
           const errorMessage = errorData.detail || 'Registration failed';
+          
+          // ✅ DEBUG: Log the payload that failed
+          console.error('❌ Registration failed:', {
+            status: response.status,
+            error: errorMessage,
+            payload: payload
+          });
+          
           // ✅ Better error messages for common cases
           if (errorMessage.includes('already registered') || errorMessage.includes('already exists')) {
             throw new Error(`${errorMessage} Please log in or use a different account.`);

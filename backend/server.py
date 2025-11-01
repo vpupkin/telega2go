@@ -837,6 +837,9 @@ async def resolve_telegram_ids(chat_id: Optional[str] = None, username: Optional
 @api_router.post("/register")
 async def register_user(registration: UserRegistration):
     """Start user registration process and send OTP - RESTORED: Simple pre-googol logic + optional resolution"""
+    # ✅ DEBUG: Log incoming request
+    logger.info(f"📥 Registration request: name={registration.name}, email={registration.email}, phone={registration.phone}, chat_id={registration.telegram_chat_id}, username={registration.telegram_username}")
+    
     # ✅ RESTORED: Pre-googol simple validation - check name uniqueness FIRST
     existing_user_by_name = await db.users.find_one({
         "name": {"$regex": f"^{registration.name}$", "$options": "i"}
@@ -879,10 +882,17 @@ async def register_user(registration: UserRegistration):
         except HTTPException as e:
             # Resolution failed - provide helpful error message
             logger.warning(f"⚠️ Could not resolve username {username} to chat_id: {e.detail}")
-            raise HTTPException(
-                status_code=422,
-                detail=f"Could not resolve username {username} to Chat ID. Please switch to 'Chat ID' mode and enter your Telegram Chat ID (get it from @userinfobot). Error: {e.detail}"
-            )
+            # ✅ CRITICAL: Make error message clear and actionable
+            if "not found" in e.detail.lower() or "404" in e.detail.lower():
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Username {username} not found in Telegram. Please:\n1. Switch to 'Chat ID' mode (button above)\n2. Get your Chat ID from @userinfobot on Telegram\n3. Enter the Chat ID and submit again"
+                )
+            else:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Could not resolve username {username} to Chat ID. Please switch to 'Chat ID' mode (button above) and enter your Telegram Chat ID from @userinfobot."
+                )
         except Exception as e:
             # Other errors - log and provide helpful message
             logger.warning(f"⚠️ Username resolution error for {username}: {e}")
