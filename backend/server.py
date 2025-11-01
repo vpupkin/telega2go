@@ -55,6 +55,27 @@ FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://putana.date').rstrip('/')
 # Create the main app without a prefix
 app = FastAPI()
 
+# ✅ CRITICAL: Better 422 error handling for validation errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle Pydantic validation errors with detailed messages"""
+    errors = exc.errors()
+    logger.error(f"❌ Validation error: {errors}")
+    
+    # Extract field-specific errors
+    error_messages = []
+    for error in errors:
+        field = ".".join(str(loc) for loc in error.get("loc", []))
+        msg = error.get("msg", "Validation error")
+        error_messages.append(f"{field}: {msg}")
+    
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": f"Validation error: {', '.join(error_messages)}. Please check all required fields are filled correctly."
+        }
+    )
+
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
