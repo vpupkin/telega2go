@@ -754,18 +754,20 @@ async def register_user(registration: UserRegistration):
     if not has_chat_id and not has_username:
         raise HTTPException(status_code=422, detail="Either telegram_chat_id OR telegram_username is required")
     
-    if has_chat_id and has_username:
-        raise HTTPException(status_code=422, detail="Only ONE identifier allowed: telegram_chat_id OR telegram_username, not both")
-    
-    # ✅ KISS: Resolve username to chat_id if needed (for OTP delivery)
-    chat_id = str(chat_id_val).strip() if has_chat_id else None
-    if has_username and not chat_id:
-        # TODO: Implement username resolution via Telegram Bot API
-        # For now: username requires chat_id for OTP
+    # ✅ FIX: Username requires chat_id for OTP delivery
+    # Pure username (no chat_id) is NOT allowed ❌
+    if has_username and not has_chat_id:
         raise HTTPException(
-            status_code=422, 
-            detail="telegram_chat_id is required for OTP delivery when using username. Please use Chat ID option in the form."
+            status_code=422,
+            detail="telegram_chat_id is required for OTP delivery when using username. Please provide Chat ID in the form."
         )
+    
+    # ✅ Allowed combinations:
+    # - Pure chat_id (no username) ✅
+    # - Username + chat_id (both) ✅ (chat_id needed for OTP)
+    
+    # ✅ KISS: Use chat_id for OTP delivery
+    chat_id = str(chat_id_val).strip() if has_chat_id else None
     
     # ✅ CRITICAL: Check name uniqueness (KISS: Case-insensitive check)
     existing_user_by_name = await db.users.find_one({

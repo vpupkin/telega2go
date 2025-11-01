@@ -10,8 +10,8 @@ const LoginPage = () => {
   const navigate = useNavigate();
 
   const handleTelegramLogin = () => {
-    // Redirect to Telegram bot or registration
-    navigate('/registrationOfNewUser');
+    // ✅ NEW: Redirect to direct Telegram registration form (default for very first login)
+    navigate('/telegram-register');
   };
 
   return (
@@ -55,7 +55,7 @@ const LoginPage = () => {
             <p className="text-sm text-gray-600">
               New user?{' '}
               <button
-                onClick={() => navigate('/registrationOfNewUser')}
+                onClick={() => navigate('/telegram-register')}
                 className="text-blue-600 hover:text-blue-800 font-medium inline-flex items-center"
               >
                 Register here

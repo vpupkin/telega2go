@@ -279,13 +279,21 @@ const UserRegistration = () => {
       setError('Phone number is required');
       return false;
     }
-    if (useUsername && !formData.telegram_username.trim()) {
-      setError('Telegram Username is required');
-      return false;
-    }
-    if (!useUsername && !formData.telegram_chat_id.trim()) {
-      setError('Telegram Chat ID is required');
-      return false;
+    // ✅ FIX: When username is selected, BOTH are required (chat_id for OTP)
+    if (useUsername) {
+      if (!formData.telegram_username.trim()) {
+        setError('Telegram Username is required');
+        return false;
+      }
+      if (!formData.telegram_chat_id.trim()) {
+        setError('Chat ID is required for OTP delivery when using username');
+        return false;
+      }
+    } else {
+      if (!formData.telegram_chat_id.trim()) {
+        setError('Telegram Chat ID is required');
+        return false;
+      }
     }
     return true;
   };
@@ -443,16 +451,22 @@ const UserRegistration = () => {
         setStep(3);
       } else if (isDirectTelegramRegistration) {
         // ✅ NEW: Direct Telegram Registration flow with OTP
-        // ✅ CRITICAL: Only send ONE field - either telegram_username OR telegram_chat_id, NEVER both!
+        // ✅ FIX: Username requires chat_id for OTP delivery
         const payload = {
           name: formData.name,
           email: formData.email,
           phone: formData.phone,
         };
         
-        // ✅ Only add ONE identifier based on toggle
+        // ✅ If username is selected, BOTH are required (chat_id for OTP)
         if (useUsername) {
+          if (!formData.telegram_chat_id.trim()) {
+            setError('Chat ID is required for OTP delivery when using username');
+            setIsLoading(false);
+            return;
+          }
           payload.telegram_username = formData.telegram_username;
+          payload.telegram_chat_id = formData.telegram_chat_id; // Required for OTP
         } else {
           payload.telegram_chat_id = formData.telegram_chat_id;
         }
@@ -859,19 +873,38 @@ const UserRegistration = () => {
 
                 {/* Conditional Telegram Input Fields */}
                 {useUsername ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="telegram_username">Telegram Username *</Label>
-                    <Input
-                      id="telegram_username"
-                      name="telegram_username"
-                      placeholder="@username"
-                      value={formData.telegram_username}
-                      onChange={handleInputChange}
-                      required
-                    />
-                    <p className="text-xs text-gray-600">
-                      Enter your Telegram username (e.g., @username)
-                    </p>
+                  <div className="space-y-4">
+                    {/* Username field */}
+                    <div className="space-y-2">
+                      <Label htmlFor="telegram_username">Telegram Username *</Label>
+                      <Input
+                        id="telegram_username"
+                        name="telegram_username"
+                        placeholder="@username"
+                        value={formData.telegram_username}
+                        onChange={handleInputChange}
+                        required
+                      />
+                      <p className="text-xs text-gray-600">
+                        Enter your Telegram username (e.g., @username)
+                      </p>
+                    </div>
+                    {/* Chat ID field - REQUIRED for OTP delivery */}
+                    <div className="space-y-2">
+                      <Label htmlFor="telegram_chat_id">Telegram Chat ID * (Required for OTP)</Label>
+                      <Input
+                        id="telegram_chat_id"
+                        name="telegram_chat_id"
+                        placeholder="123456789"
+                        value={formData.telegram_chat_id}
+                        onChange={handleInputChange}
+                        required
+                        className="border-yellow-300 bg-yellow-50"
+                      />
+                      <p className="text-xs text-yellow-700">
+                        ⚠️ Chat ID is required for OTP delivery, even when using username
+                      </p>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-2">

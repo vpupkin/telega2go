@@ -16,9 +16,12 @@ function App() {
           <Route path="/" element={<UserRegistration />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/auth/google" element={<GoogleOAuthHandler />} />
+          <Route path="/telegram-register" element={<UserRegistration />} />
           <Route path="/registrationOfNewUser" element={<UserRegistration />} />
           <Route path="/admin" element={<OTPDashboard />} />
           <Route path="/verify" element={<MagicLinkVerification />} />
+          {/* Catch-all route for unmatched paths - redirect to home */}
+          <Route path="*" element={<UserRegistration />} />
         </Routes>
       </BrowserRouter>
       <Toaster />

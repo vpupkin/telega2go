@@ -56,7 +56,7 @@ def test_only_username():
     return True
 
 def test_both_identifiers():
-    """Test: Registration with BOTH identifiers (should fail)"""
+    """Test: Registration with BOTH identifiers (username + chat_id should be accepted)"""
     print("🧪 Test 3: Registration with BOTH telegram_chat_id AND telegram_username")
     response = requests.post(
         f"{BACKEND_URL}/register",
@@ -68,14 +68,10 @@ def test_both_identifiers():
             "telegram_username": "@testuser"
         }
     )
-    assert response.status_code == 422, f"Expected 422 (only one allowed), got {response.status_code}: {response.text[:200]}"
-    error_data = response.json()
-    detail = error_data.get("detail", "")
-    if isinstance(detail, list):
-        detail = " ".join(str(d) for d in detail)
-    error_str = str(detail).lower()
-    assert "only" in error_str or "one" in error_str, f"Error should mention only one allowed: {error_str}"
-    print("✅ PASS: Both identifiers rejected")
+    # ✅ FIX: Username + chat_id is now allowed (chat_id required for OTP)
+    # Validation should pass (OTP may fail, but that's separate)
+    assert response.status_code != 422, f"Should NOT be 422 (validation error), got {response.status_code}: {response.text[:200]}"
+    print(f"✅ PASS: Both identifiers accepted (status: {response.status_code})")
     return True
 
 def test_no_identifiers():
@@ -102,7 +98,7 @@ def test_no_identifiers():
 def run_all_tests():
     """Run all tests"""
     print("=" * 60)
-    print("🧪 Telegram Registration - Single Identifier Tests (KISS)")
+    print("🧪 Telegram Registration - Identifier Validation Tests")
     print("=" * 60)
     
     tests = [
