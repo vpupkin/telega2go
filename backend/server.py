@@ -17,6 +17,13 @@ import httpx
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+# Configure logging early
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -32,6 +39,12 @@ MAGIC_LINK_SECRET = os.environ.get('MAGIC_LINK_SECRET', JWT_SECRET)
 
 # OTP Gateway URL (✅ Correct port: 55551 from docker-compose.yml)
 OTP_GATEWAY_URL = os.environ.get('OTP_GATEWAY_URL', 'http://localhost:55551')
+
+# Google OAuth Configuration
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
+GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
+GOOGLE_REDIRECT_URI = os.environ.get('GOOGLE_REDIRECT_URI', 'http://localhost:55552/api/auth/google/callback')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://putana.date').rstrip('/')
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -64,6 +77,12 @@ class User(BaseModel):
     is_verified: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # Google OAuth fields
+    google_id: Optional[str] = None  # Google user ID
+    google_email: Optional[str] = None  # Google email (if different from primary email)
+    google_picture: Optional[str] = None  # Google profile picture URL
+    auth_provider: str = "telegram"  # "telegram" | "google" | "both"
+    google_linked_at: Optional[datetime] = None  # When Google account was linked
 
 class UserRegistration(BaseModel):
     name: str
@@ -97,6 +116,12 @@ class UserResponse(BaseModel):
     balance: float = 0.0  # ✅ User balance
     is_verified: bool
     created_at: str  # ✅ Changed to str to avoid datetime serialization issues
+    # Google OAuth fields
+    google_id: Optional[str] = None
+    google_email: Optional[str] = None
+    google_picture: Optional[str] = None
+    auth_provider: str = "telegram"
+    google_linked_at: Optional[str] = None
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -266,6 +291,223 @@ async def verify_magic_link(token: str, request: FastAPIRequest):
     # Redirect to dashboard with token - use absolute URL for Apache compatibility
     redirect_url = f"{base_url}/?token={access_token}"
     return RedirectResponse(url=redirect_url, status_code=302)
+
+# Google OAuth Functions
+def generate_state_token() -> str:
+    """Generate a random state token for CSRF protection"""
+    import secrets
+    return secrets.token_urlsafe(32)
+
+async def store_oauth_state(state: str, expires_in_minutes: int = 10):
+    """Store OAuth state token in MongoDB with expiration"""
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=expires_in_minutes)
+    await db.oauth_states.insert_one({
+        "state": state,
+        "expires_at": expires_at,
+        "created_at": datetime.now(timezone.utc)
+    })
+    # Create TTL index if not exists (for automatic cleanup)
+    try:
+        await db.oauth_states.create_index("expires_at", expireAfterSeconds=0)
+    except Exception:
+        pass  # Index might already exist
+
+async def verify_oauth_state(state: str) -> bool:
+    """Verify OAuth state token exists and is not expired"""
+    state_doc = await db.oauth_states.find_one({"state": state})
+    if not state_doc:
+        return False
+    # Check if expired
+    expires_at = state_doc.get("expires_at")
+    if expires_at and datetime.now(timezone.utc) > expires_at:
+        # Remove expired state
+        await db.oauth_states.delete_one({"state": state})
+        return False
+    # Remove used state
+    await db.oauth_states.delete_one({"state": state})
+    return True
+
+@api_router.get("/auth/google")
+async def initiate_google_oauth(request: Request):
+    """Initiate Google OAuth flow - redirects to Google consent screen"""
+    from fastapi.responses import RedirectResponse
+    
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=500,
+            detail="Google OAuth not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables."
+        )
+    
+    # Generate state token for CSRF protection
+    state = generate_state_token()
+    await store_oauth_state(state, expires_in_minutes=10)
+    
+    # Build Google OAuth URL
+    # KISS: Use simple query parameters instead of google-auth library for now
+    from urllib.parse import urlencode
+    
+    # Get redirect URI from request (for development) or use configured one
+    redirect_uri = GOOGLE_REDIRECT_URI
+    if "localhost" in str(request.url) and "55552" in str(request.url):
+        # Development mode
+        redirect_uri = f"{request.url.scheme}://{request.url.netloc}/api/auth/google/callback"
+    
+    google_oauth_url = (
+        "https://accounts.google.com/o/oauth2/v2/auth?"
+        + urlencode({
+            "client_id": GOOGLE_CLIENT_ID,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": "openid email profile",
+            "state": state,
+            "access_type": "offline",
+            "prompt": "consent"
+        })
+    )
+    
+    logger.info(f"🔵 Google OAuth initiated: state={state[:8]}..., redirect_uri={redirect_uri}")
+    return RedirectResponse(url=google_oauth_url, status_code=302)
+
+@api_router.get("/auth/google/callback")
+async def google_oauth_callback(code: str, state: str, request: FastAPIRequest):
+    """Handle Google OAuth callback - exchange code for token and create/update user"""
+    from fastapi.responses import RedirectResponse
+    
+    # Verify state token (CSRF protection)
+    if not await verify_oauth_state(state):
+        logger.warning(f"❌ Invalid or expired OAuth state: {state[:8]}...")
+        redirect_url = f"{FRONTEND_URL}/?error=invalid_oauth_state"
+        return RedirectResponse(url=redirect_url, status_code=302)
+    
+    try:
+        # Exchange authorization code for access token
+        token_url = "https://oauth2.googleapis.com/token"
+        token_data = {
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": GOOGLE_REDIRECT_URI,
+            "grant_type": "authorization_code"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            token_response = await client.post(token_url, data=token_data, timeout=30.0)
+            if token_response.status_code != 200:
+                logger.error(f"❌ Google token exchange failed: {token_response.status_code} - {token_response.text}")
+                redirect_url = f"{FRONTEND_URL}/?error=google_token_exchange_failed"
+                return RedirectResponse(url=redirect_url, status_code=302)
+            
+            token_json = token_response.json()
+            access_token = token_json.get("access_token")
+            id_token = token_json.get("id_token")
+            
+            if not access_token:
+                logger.error("❌ No access token in Google response")
+                redirect_url = f"{FRONTEND_URL}/?error=no_access_token"
+                return RedirectResponse(url=redirect_url, status_code=302)
+        
+        # Get user info from Google
+        userinfo_url = "https://www.googleapis.com/oauth2/v2/userinfo"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        
+        async with httpx.AsyncClient() as client:
+            userinfo_response = await client.get(userinfo_url, headers=headers, timeout=30.0)
+            if userinfo_response.status_code != 200:
+                logger.error(f"❌ Google userinfo failed: {userinfo_response.status_code}")
+                redirect_url = f"{FRONTEND_URL}/?error=google_userinfo_failed"
+                return RedirectResponse(url=redirect_url, status_code=302)
+            
+            google_user = userinfo_response.json()
+            google_id = google_user.get("id")
+            google_email = google_user.get("email")
+            google_name = google_user.get("name", google_email.split("@")[0])
+            google_picture = google_user.get("picture")
+        
+        if not google_id or not google_email:
+            logger.error(f"❌ Missing required Google user info: id={google_id}, email={google_email}")
+            redirect_url = f"{FRONTEND_URL}/?error=missing_google_user_info"
+            return RedirectResponse(url=redirect_url, status_code=302)
+        
+        logger.info(f"✅ Google OAuth user info retrieved: email={google_email}, google_id={google_id}")
+        
+        # Check if user exists (by google_id or email)
+        existing_user = await db.users.find_one({
+            "$or": [
+                {"google_id": google_id},
+                {"email": google_email}
+            ]
+        })
+        
+        if existing_user:
+            # Existing user - update Google info
+            update_data = {
+                "google_id": google_id,
+                "google_email": google_email,
+                "google_picture": google_picture,
+                "google_linked_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc)
+            }
+            
+            # Update auth_provider
+            current_provider = existing_user.get("auth_provider", "telegram")
+            if current_provider == "telegram":
+                update_data["auth_provider"] = "both"
+            elif current_provider == "google":
+                update_data["auth_provider"] = "google"
+            # If already "both", keep it
+            
+            await db.users.update_one(
+                {"id": existing_user["id"]},
+                {"$set": update_data}
+            )
+            
+            user_id = existing_user["id"]
+            logger.info(f"✅ Updated existing user with Google account: user_id={user_id}")
+        else:
+            # New user - create account
+            user_id = str(uuid.uuid4())
+            user_doc = {
+                "id": user_id,
+                "name": google_name,
+                "email": google_email,
+                "phone": "",  # Empty for Google users
+                "telegram_chat_id": "",  # Empty for Google users
+                "balance": 0.0,
+                "is_verified": True,  # Google emails are pre-verified
+                "google_id": google_id,
+                "google_email": google_email,
+                "google_picture": google_picture,
+                "auth_provider": "google",
+                "google_linked_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc)
+            }
+            
+            # Convert datetime to ISO strings for MongoDB
+            for field in ["created_at", "updated_at", "google_linked_at"]:
+                if isinstance(user_doc[field], datetime):
+                    user_doc[field] = user_doc[field].isoformat()
+            
+            await db.users.insert_one(user_doc)
+            logger.info(f"✅ Created new user with Google account: user_id={user_id}, email={google_email}")
+        
+        # Generate JWT token
+        token_data_jwt = {
+            "sub": user_id,
+            "email": google_email,
+            "auth_provider": "google"
+        }
+        access_token_jwt = create_access_token(token_data_jwt)
+        
+        # Redirect to frontend with token
+        redirect_url = f"{FRONTEND_URL}/?token={access_token_jwt}"
+        logger.info(f"✅ Google OAuth successful, redirecting to: {FRONTEND_URL}")
+        return RedirectResponse(url=redirect_url, status_code=302)
+        
+    except Exception as e:
+        logger.error(f"❌ Google OAuth callback error: {e}", exc_info=True)
+        redirect_url = f"{FRONTEND_URL}/?error=oauth_callback_error"
+        return RedirectResponse(url=redirect_url, status_code=302)
 
 # OTP Gateway Integration
 async def send_otp_via_telegram(chat_id: str, otp: str):
@@ -1117,6 +1359,7 @@ async def list_users():
         
         # ✅ CRITICAL FIX: UserResponse.created_at expects STRING, not datetime!
         # Keep created_at as ISO string (don't convert back to datetime)
+        # Also handle Google OAuth datetime fields
         for user in users:
             if isinstance(user.get('created_at'), datetime):
                 # If it's a datetime object (from motor), convert to ISO string
@@ -1124,6 +1367,10 @@ async def list_users():
             elif not isinstance(user.get('created_at'), str):
                 # If it's not a string, convert to ISO string
                 user['created_at'] = datetime.now(timezone.utc).isoformat()
+            
+            # Convert Google OAuth datetime fields to strings if needed
+            if isinstance(user.get('google_linked_at'), datetime):
+                user['google_linked_at'] = user['google_linked_at'].isoformat()
             
             # ✅ Initialize balance if missing
             if user.get('balance') is None:
@@ -1334,12 +1581,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Logging already configured above
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
