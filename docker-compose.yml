@@ -68,6 +68,7 @@ services:
       - CORS_ORIGINS=http://localhost:55553,http://localhost:80,https://putana.date
       - JWT_SECRET=your-super-secret-jwt-key-change-in-production
       - OTP_GATEWAY_URL=https://putana.date/otp
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-8021082793:AAE56NV3KZ76qkRGrGv9kKk3Wq17n_exvzQ}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-https://putana.date/api/auth/google/callback}

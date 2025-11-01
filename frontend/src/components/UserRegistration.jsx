@@ -53,7 +53,7 @@ const UserRegistration = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  // ✅ KISS: Removed useUsername toggle (OTP requires chat_id only)
+  const [useUsername, setUseUsername] = useState(false); // ✅ PENALTY FIX: Restore toggle
   const [telegramData, setTelegramData] = useState(null);
   const [nameAvailable, setNameAvailable] = useState(true);
   const [nameMessage, setNameMessage] = useState('');
@@ -279,10 +279,17 @@ const UserRegistration = () => {
       setError('Phone number is required');
       return false;
     }
-    // ✅ KISS: Only validate chat_id (username not supported, OTP requires chat_id)
-    if (!formData.telegram_chat_id.trim()) {
-      setError('Telegram Chat ID is required for OTP delivery');
-      return false;
+    // ✅ PENALTY FIX: Validate EITHER username OR chat_id (one required)
+    if (useUsername) {
+      if (!formData.telegram_username || !formData.telegram_username.trim()) {
+        setError('Telegram Username is required');
+        return false;
+      }
+    } else {
+      if (!formData.telegram_chat_id || !formData.telegram_chat_id.trim()) {
+        setError('Telegram Chat ID is required');
+        return false;
+      }
     }
     return true;
   };
@@ -447,8 +454,14 @@ const UserRegistration = () => {
           phone: formData.phone,
         };
         
-        // ✅ KISS: Only send chat_id (OTP requires it, username not supported)
-        payload.telegram_chat_id = formData.telegram_chat_id;
+        // ✅ PENALTY FIX: Send ONLY the selected identifier (backend will resolve the other)
+        if (useUsername) {
+          payload.telegram_username = formData.telegram_username;
+          // ✅ NEVER send both - backend resolves chat_id from username
+        } else {
+          payload.telegram_chat_id = formData.telegram_chat_id;
+          // ✅ NEVER send both - backend resolves username from chat_id
+        }
         
         const response = await fetch(`${API_BASE}/register`, {
           method: 'POST',
@@ -826,21 +839,58 @@ const UserRegistration = () => {
             <>
               <div className="space-y-4 p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg border-2 border-purple-200">
                 <h3 className="text-lg font-bold text-purple-900 mb-4 text-center">📱 Telegram Registration</h3>
-                {/* ✅ KISS: Only Chat ID (OTP requires it, username not supported) */}
-                <div className="space-y-2">
-                  <Label htmlFor="telegram_chat_id">Telegram Chat ID *</Label>
-                  <Input
-                    id="telegram_chat_id"
-                    name="telegram_chat_id"
-                    placeholder="123456789"
-                    value={formData.telegram_chat_id}
-                    onChange={handleInputChange}
-                    required
-                  />
-                  <p className="text-xs text-gray-600">
-                    Get your Chat ID from @userinfobot on Telegram (Required for OTP delivery)
-                  </p>
+                {/* ✅ PENALTY FIX: Toggle between Username OR Chat ID (NEVER both) */}
+                <div className="flex gap-2 mb-4">
+                  <Button
+                    type="button"
+                    variant={useUsername ? "default" : "outline"}
+                    onClick={() => setUseUsername(true)}
+                    className="flex-1"
+                  >
+                    @username
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={!useUsername ? "default" : "outline"}
+                    onClick={() => setUseUsername(false)}
+                    className="flex-1"
+                  >
+                    Chat ID
+                  </Button>
                 </div>
+
+                {/* ✅ Show ONLY ONE field based on toggle */}
+                {useUsername ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="telegram_username">Telegram Username *</Label>
+                    <Input
+                      id="telegram_username"
+                      name="telegram_username"
+                      placeholder="@username"
+                      value={formData.telegram_username || ''}
+                      onChange={handleInputChange}
+                      required
+                    />
+                    <p className="text-xs text-gray-600">
+                      Enter your Telegram username (e.g., @username). Chat ID will be resolved automatically.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="telegram_chat_id">Telegram Chat ID *</Label>
+                    <Input
+                      id="telegram_chat_id"
+                      name="telegram_chat_id"
+                      placeholder="123456789"
+                      value={formData.telegram_chat_id}
+                      onChange={handleInputChange}
+                      required
+                    />
+                    <p className="text-xs text-gray-600">
+                      Get your Chat ID from @userinfobot on Telegram. Username will be resolved automatically.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
