@@ -142,6 +142,9 @@ class OTPVerification(BaseModel):
     email: EmailStr
     otp: str
 
+class ResendOTPRequest(BaseModel):
+    email: EmailStr
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: Optional[str] = None
@@ -1536,8 +1539,11 @@ async def verify_otp(verification: OTPVerification):
     )
 
 @api_router.post("/resend-otp")
-async def resend_otp(email: str):
-    """Resend OTP for registration"""
+async def resend_otp(request: ResendOTPRequest):
+    """Resend OTP for registration - Accepts email in request body"""
+    # ✅ PENALTY FIX: Accept email from JSON body (frontend sends it in body)
+    email = request.email
+    
     # Find registration session
     session = await db.registration_sessions.find_one({"email": email})
     if not session:
@@ -1557,11 +1563,31 @@ async def resend_otp(email: str):
         {"$set": {"otp": otp}}
     )
     
+    # ✅ PENALTY FIX: Support username-only registration (chat_id may be None)
+    user_data = session.get('user_data', {})
+    chat_id = user_data.get('telegram_chat_id')
+    username = user_data.get('telegram_username')
+    
+    # Determine OTP target (chat_id or username)
+    otp_target = chat_id or username
+    if not otp_target:
+        raise HTTPException(status_code=422, detail="Cannot resend OTP: no chat_id or username in session")
+    
+    logger.info(f"📤 Resending OTP to: {otp_target} (type: {'chat_id' if chat_id else 'username'})")
+    
     # Send OTP via Telegram
-    otp_sent = await send_otp_via_telegram(session['user_data']['telegram_chat_id'], otp)
+    otp_sent = await send_otp_via_telegram(otp_target, otp)
     
     if not otp_sent:
-        raise HTTPException(status_code=500, detail="Failed to resend OTP via Telegram")
+        # For username-only, provide helpful message
+        if not chat_id and username:
+            logger.warning(f"⚠️ Could not resend OTP to username {username}. User may need to start the bot first.")
+            return {
+                "message": f"Could not send OTP to {username}. Please start the bot (@taxoin_bot) first, or switch to 'Chat ID' mode.",
+                "requires_bot_start": True
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to resend OTP via Telegram")
     
     return {"message": "OTP resent successfully"}
 

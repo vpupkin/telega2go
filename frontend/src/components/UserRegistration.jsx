@@ -58,6 +58,7 @@ const UserRegistration = () => {
   const [nameAvailable, setNameAvailable] = useState(true);
   const [nameMessage, setNameMessage] = useState('');
   const [loadingTelegramData, setLoadingTelegramData] = useState(false);
+  const [skipTelegramDataLoad, setSkipTelegramDataLoad] = useState(false); // ✅ FIX: Prevent reloading Telegram data when registering another user
 
   // ✅ WelcomeBack: Check for JWT token first (registered user clicking magic link)
   useEffect(() => {
@@ -72,10 +73,24 @@ const UserRegistration = () => {
     }
   }, [tokenParam, navigate]);
 
+  // ✅ FIX: Reset skipTelegramDataLoad flag when URL params change (new registration request)
+  useEffect(() => {
+    // If we get new URL params (urrIdParam or telegramUserIdParam), reset the skip flag
+    if (urrIdParam || telegramUserIdParam) {
+      setSkipTelegramDataLoad(false);
+    }
+  }, [urrIdParam, telegramUserIdParam]);
+
   // ✅ PENALTY4: Load Telegram data by URR_ID or telegram_user_id
   useEffect(() => {
     // Skip if token is present (user is being redirected)
     if (tokenParam) return;
+    
+    // ✅ FIX: Skip loading if user explicitly wants to register another user
+    if (skipTelegramDataLoad) {
+      console.log('⚠️ Skipping Telegram data load - user wants to register another user');
+      return;
+    }
     
     // ✅ NEW: Skip loading Telegram data for direct Telegram registration (user will enter manually)
     if (isDirectTelegramRegistration) {
@@ -98,7 +113,7 @@ const UserRegistration = () => {
     } else {
       console.warn('⚠️ No URR_ID or telegram_user_id in URL parameters');
     }
-  }, [urrIdParam, telegramUserIdParam, tokenParam, isDirectTelegramRegistration]);
+  }, [urrIdParam, telegramUserIdParam, tokenParam, isDirectTelegramRegistration, skipTelegramDataLoad]);
 
   // ✅ PENALTY4: Load data by URR_ID (primary method)
   const loadTelegramDataByUrrId = async (urrId) => {
@@ -1158,7 +1173,14 @@ const UserRegistration = () => {
               type="button"
               variant="ghost"
               className="w-full"
-              onClick={() => setStep(1)}
+              onClick={() => {
+                setStep(1);
+                // ✅ FIX: Don't reset form data when going back (user might want to edit)
+                // Only clear OTP code and errors
+                setOtpCode('');
+                setError('');
+                setSuccess('');
+              }}
               disabled={isLoading}
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
@@ -1227,11 +1249,31 @@ const UserRegistration = () => {
 
         <Button
           onClick={() => {
+            // ✅ FIX: Clear URL parameters to prevent reloading expired Telegram data
+            navigate('/telegram-register', { replace: true });
+            
+            // ✅ FIX: Reset all state including Telegram data flags
             setStep(1);
-            setFormData({ name: '', email: '', phone: '', telegram_chat_id: '', telegram_username: '' });
+            setFormData({ 
+              name: '', 
+              email: '', 
+              phone: '', 
+              telegram_chat_id: '', 
+              telegram_username: '',
+              urr_id: '',
+              telegram_user_id: '',
+              username: '',
+              password: ''
+            });
             setOtpCode('');
             setError('');
             setSuccess('');
+            setTelegramData(null);
+            setNameAvailable(true);
+            setNameMessage('');
+            setLoadingTelegramData(false);
+            setSkipTelegramDataLoad(true); // ✅ Prevent reloading Telegram data from old URL params
+            setUseUsername(false); // Reset toggle
           }}
           className="w-full"
         >
